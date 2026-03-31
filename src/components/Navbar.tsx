@@ -10,6 +10,7 @@ type Dict = {
     dashboard: string;
     pricing: string;
     editor: string;
+    blog: string;
     login: string;
     logout: string;
   };
@@ -71,6 +72,12 @@ export default function Navbar({
               className="text-sm text-muted hover:text-foreground transition"
             >
               {dict.nav.pricing}
+            </Link>
+            <Link
+              href={`/${locale}/blog`}
+              className="text-sm text-muted hover:text-foreground transition"
+            >
+              {dict.nav.blog}
             </Link>
             <LanguageSwitcher locale={locale} />
             {user ? (
@@ -162,6 +169,13 @@ export default function Navbar({
             onClick={() => setMenuOpen(false)}
           >
             {dict.nav.pricing}
+          </Link>
+          <Link
+            href={`/${locale}/blog`}
+            className="block text-sm text-muted hover:text-foreground"
+            onClick={() => setMenuOpen(false)}
+          >
+            {dict.nav.blog}
           </Link>
           <LanguageSwitcher locale={locale} />
           {user ? (

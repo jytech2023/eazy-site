@@ -1,6 +1,7 @@
 import { streamText } from "ai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { PLANS, type PlanKey } from "@/lib/stripe";
+import { getAvailableModels } from "@/lib/models";
 
 const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
@@ -39,10 +40,10 @@ Rules:
 
 export async function POST(request: Request) {
   const body = await request.json();
-  const { prompt, files, history } = body;
+  const { prompt, files, history, model: requestedModel } = body;
 
-  // Determine user's plan and model
-  let modelId = PLANS.free.model;
+  // Determine user's plan and validate model selection
+  let plan: PlanKey = "free";
 
   if (process.env.DATABASE_URL) {
     try {
@@ -59,14 +60,19 @@ export async function POST(request: Request) {
           .where(eq(users.email, session.user.email as string))
           .limit(1);
         if (dbUser) {
-          const plan = (dbUser.plan || "free") as PlanKey;
-          modelId =
-            dbUser.preferredModel || PLANS[plan]?.model || PLANS.free.model;
+          plan = (dbUser.plan || "free") as PlanKey;
         }
       }
     } catch {
-      // Anonymous or DB unavailable - use free model
+      // Anonymous or DB unavailable - free tier
     }
+  }
+
+  // Use requested model if available for user's plan, otherwise default
+  const available = getAvailableModels(plan);
+  let modelId = PLANS[plan]?.model || PLANS.free.model;
+  if (requestedModel && available.some((m) => m.id === requestedModel)) {
+    modelId = requestedModel;
   }
 
   const messages: { role: "system" | "user" | "assistant"; content: string }[] =

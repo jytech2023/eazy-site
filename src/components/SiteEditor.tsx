@@ -131,6 +131,9 @@ export default function SiteEditor({
   const [currentSiteId, setCurrentSiteId] = useState<string | undefined>(siteId);
   const [chatHistory, setChatHistory] = useState<{ role: string; content: string }[]>([]);
   const [streamingContent, setStreamingContent] = useState("");
+  const [selectedModel, setSelectedModel] = useState("openrouter/auto");
+  const [models, setModels] = useState<{ id: string; name: string; tier: string; available: boolean }[]>([]);
+  const [userPlan, setUserPlan] = useState("free");
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -139,11 +142,24 @@ export default function SiteEditor({
   const hasFiles = fileNames.length > 0;
   const previewHtml = useMemo(() => buildPreviewHtml(files), [files]);
 
-  // Check auth state
+  // Check auth state & load models
   useEffect(() => {
     fetch("/auth/profile")
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => { if (data) setUser(data); })
+      .catch(() => {});
+
+    fetch("/api/models")
+      .then((r) => r.json())
+      .then((data) => {
+        setModels(data.models || []);
+        setUserPlan(data.plan || "free");
+        // Default to best available model
+        const available = (data.models || []).filter((m: { available: boolean }) => m.available);
+        if (available.length > 0) {
+          setSelectedModel(available[available.length - 1].id);
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -192,6 +208,7 @@ export default function SiteEditor({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           prompt: currentPrompt,
+          model: selectedModel,
           files: hasFiles ? files : undefined,
           siteId: currentSiteId,
           history: chatHistory.slice(-6),
@@ -378,9 +395,33 @@ export default function SiteEditor({
         )}
 
         {/* Input */}
-        <div className="p-4 border-t border-card-border">
+        <div className="p-4 border-t border-card-border space-y-2">
           {!user && (
-            <p className="text-xs text-muted mb-2">{dict.editor.loginToManage}</p>
+            <p className="text-xs text-muted">{dict.editor.loginToManage}</p>
+          )}
+          {/* Model selector */}
+          {models.length > 0 && (
+            <div className="flex items-center gap-2">
+              <select
+                value={selectedModel}
+                onChange={(e) => setSelectedModel(e.target.value)}
+                className="flex-1 text-xs rounded-md border border-card-border bg-card-bg px-2 py-1.5 text-foreground focus:outline-none focus:border-accent appearance-none cursor-pointer"
+              >
+                {models.map((m) => (
+                  <option key={m.id} value={m.id} disabled={!m.available}>
+                    {m.name} {!m.available ? `(${m.tier})` : ""}
+                  </option>
+                ))}
+              </select>
+              {userPlan === "free" && (
+                <a
+                  href={`/${locale}/pricing`}
+                  className="shrink-0 text-xs text-accent hover:underline"
+                >
+                  Upgrade
+                </a>
+              )}
+            </div>
           )}
           <div className="flex gap-2">
             <textarea
