@@ -15,7 +15,7 @@ export const PLANS = {
   free: {
     name: "Free",
     price: 0,
-    model: "openrouter/auto",
+    model: "qwen/qwen3-coder:free",
     maxSites: 100,
     maxPages: 10,
     interval: null as string | null,

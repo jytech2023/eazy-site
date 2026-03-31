@@ -37,6 +37,30 @@ const t = {
     sites: "个网站",
     noData: "暂无数据。开始创建网站来查看统计！",
   },
+  es: {
+    title: "Estadísticas de la Plataforma",
+    subtitle: "Estadísticas de uso en tiempo real de EasySite",
+    totalGenerations: "Generaciones IA",
+    totalSites: "Sitios Creados",
+    totalUsers: "Usuarios",
+    modelUsage: "Uso de Modelos",
+    dailyActivity: "Actividad Diaria (30 días)",
+    generations: "generaciones",
+    sites: "sitios",
+    noData: "Aún no hay datos. ¡Empieza a crear sitios para ver estadísticas!",
+  },
+  ko: {
+    title: "플랫폼 통계",
+    subtitle: "EasySite 실시간 사용 통계",
+    totalGenerations: "AI 생성 횟수",
+    totalSites: "생성된 사이트",
+    totalUsers: "사용자",
+    modelUsage: "모델 사용량",
+    dailyActivity: "일별 활동 (30일)",
+    generations: "생성",
+    sites: "사이트",
+    noData: "아직 데이터가 없습니다. 사이트를 만들어 통계를 확인하세요!",
+  },
 };
 
 // Simple model name formatter

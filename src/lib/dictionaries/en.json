@@ -9,7 +9,9 @@
     "pricing": "Pricing",
     "editor": "Create Site",
     "blog": "Blog",
+    "gallery": "Gallery",
     "profile": "Profile",
+    "models": "Models",
     "login": "Log In",
     "logout": "Log Out"
   },
@@ -53,7 +55,8 @@
     "preview": "Preview",
     "code": "Code",
     "newSite": "New Site",
-    "loginToManage": "Log in to manage your sites",
+    "loginToManage": "Guest sites are public. Register to keep drafts private.",
+    "registerPrivate": "Register to Keep Private",
     "saveDraft": "Save Draft"
   },
   "dashboard": {
@@ -132,6 +135,29 @@
     "tagline": "Build websites with AI",
     "terms": "Terms of Service",
     "privacy": "Privacy Policy"
+  },
+  "models": {
+    "title": "AI Models",
+    "subtitle": "EasySite uses multiple AI models to generate your websites. Each model has different strengths.",
+    "free": "Free",
+    "pro": "Pro",
+    "unlimited": "Unlimited",
+    "context": "Context",
+    "bestFor": "Best for",
+    "tierFreeTitle": "Free Tier",
+    "tierFreeDesc": "High-quality open-source models, free forever. Great for most websites.",
+    "tierProTitle": "Pro Tier",
+    "tierProDesc": "Premium models from Anthropic, Google, and OpenAI. Better design quality and instruction following.",
+    "tierUnlimitedTitle": "Unlimited Tier",
+    "tierUnlimitedDesc": "The most powerful models available. Best for complex, production-ready sites.",
+    "howItWorks": "How Model Selection Works",
+    "howItWorksDesc": "Choose a model from the dropdown in the editor. If a model is unavailable, EasySite automatically falls back to the next best option. Free users get access to 4 powerful open-source models. Upgrade to Pro or Unlimited for premium models.",
+    "tipsTitle": "Tips for Best Results",
+    "tip1": "Be specific about colors, layout, and content in your prompt.",
+    "tip2": "For complex sites, use Pro or Unlimited models for better quality.",
+    "tip3": "Say \"continue\" if the AI output gets cut off mid-generation.",
+    "tip4": "Use iterative prompts — start simple, then refine with follow-up requests.",
+    "startBuilding": "Start Building"
   },
   "common": {
     "loading": "Loading...",

@@ -9,7 +9,9 @@
     "pricing": "定价",
     "editor": "创建网站",
     "blog": "博客",
+    "gallery": "作品展示",
     "profile": "设置",
+    "models": "模型",
     "login": "登录",
     "logout": "退出"
   },
@@ -53,7 +55,8 @@
     "preview": "预览",
     "code": "代码",
     "newSite": "新建网站",
-    "loginToManage": "登录以管理你的网站",
+    "loginToManage": "访客作品默认公开。注册以保存私密草稿。",
+    "registerPrivate": "注册以保存私密",
     "saveDraft": "保存草稿"
   },
   "dashboard": {
@@ -132,6 +135,29 @@
     "tagline": "用 AI 建立网站",
     "terms": "服务条款",
     "privacy": "隐私政策"
+  },
+  "models": {
+    "title": "AI 模型",
+    "subtitle": "EasySite 使用多种 AI 模型来生成您的网站。每个模型都有不同的优势。",
+    "free": "免费",
+    "pro": "专业版",
+    "unlimited": "无限版",
+    "context": "上下文",
+    "bestFor": "最适合",
+    "tierFreeTitle": "免费版",
+    "tierFreeDesc": "高质量开源模型，永久免费。适合大多数网站。",
+    "tierProTitle": "专业版",
+    "tierProDesc": "来自 Anthropic、Google 和 OpenAI 的高级模型。更好的设计质量和指令理解。",
+    "tierUnlimitedTitle": "无限版",
+    "tierUnlimitedDesc": "最强大的模型。适合复杂的生产级网站。",
+    "howItWorks": "模型选择如何运作",
+    "howItWorksDesc": "在编辑器中从下拉菜单选择模型。如果模型不可用，EasySite 会自动切换到下一个最佳选项。免费用户可以使用 4 个强大的开源模型。升级到专业版或无限版以使用高级模型。",
+    "tipsTitle": "获得最佳结果的技巧",
+    "tip1": "在提示中具体说明颜色、布局和内容。",
+    "tip2": "对于复杂网站，使用专业版或无限版模型以获得更好的质量。",
+    "tip3": "如果 AI 输出被截断，请说「继续」。",
+    "tip4": "使用迭代提示 — 先简单开始，然后通过后续请求来改进。",
+    "startBuilding": "开始创建"
   },
   "common": {
     "loading": "加载中...",

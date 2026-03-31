@@ -12,6 +12,8 @@ type Dict = {
     pricing: string;
     editor: string;
     blog: string;
+    gallery: string;
+    models: string;
     profile: string;
     login: string;
     logout: string;
@@ -84,10 +86,22 @@ export default function Navbar({
               {dict.nav.pricing}
             </Link>
             <Link
+              href={`/${locale}/models`}
+              className="text-sm text-muted hover:text-foreground transition"
+            >
+              {dict.nav.models}
+            </Link>
+            <Link
               href={`/${locale}/blog`}
               className="text-sm text-muted hover:text-foreground transition"
             >
               {dict.nav.blog}
+            </Link>
+            <Link
+              href={`/${locale}/gallery`}
+              className="text-sm text-muted hover:text-foreground transition"
+            >
+              {dict.nav.gallery}
             </Link>
             <LanguageSwitcher locale={locale} />
             <ThemeToggle />
@@ -201,11 +215,25 @@ export default function Navbar({
             {dict.nav.pricing}
           </Link>
           <Link
+            href={`/${locale}/models`}
+            className="block text-sm text-muted hover:text-foreground"
+            onClick={() => setMenuOpen(false)}
+          >
+            {dict.nav.models}
+          </Link>
+          <Link
             href={`/${locale}/blog`}
             className="block text-sm text-muted hover:text-foreground"
             onClick={() => setMenuOpen(false)}
           >
             {dict.nav.blog}
+          </Link>
+          <Link
+            href={`/${locale}/gallery`}
+            className="block text-sm text-muted hover:text-foreground"
+            onClick={() => setMenuOpen(false)}
+          >
+            {dict.nav.gallery}
           </Link>
           <div className="flex items-center gap-2">
             <LanguageSwitcher locale={locale} />

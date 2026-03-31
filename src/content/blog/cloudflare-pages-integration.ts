@@ -259,6 +259,262 @@ EasySite 会自动检测你的账户 — 无需输入 Account ID。
 准备好将 AI 生成的网站部署到全球边缘网络了吗？[前往个人设置](/zh/profile)连接 Cloudflare，或[创建新网站](/zh/editor)开始体验。
 `,
   },
+  es: {
+    title: "EasySite ahora se integra con Cloudflare Pages — Despliega tus sitios generados con IA en la red edge",
+    description:
+      "Anunciamos nuestra integración con Cloudflare Pages. Despliega tus sitios web creados con IA en la red edge global de Cloudflare con un solo clic. SSL gratuito, ancho de banda ilimitado y dominios personalizados incluidos.",
+    keywords: [
+      "Cloudflare Pages",
+      "EasySite Cloudflare",
+      "desplegar sitio web en edge",
+      "constructor de sitios web IA Cloudflare",
+      "alojamiento web gratuito",
+      "sitio web CDN global",
+      "BYOK Cloudflare",
+      "alojamiento de sitios estáticos",
+    ],
+    content: `
+## Anunciamos la integración con Cloudflare Pages
+
+Estamos emocionados de anunciar que EasySite ahora se integra directamente con **Cloudflare Pages** — dándote el poder de desplegar tus sitios web generados con IA en la red edge global de Cloudflare con solo unos clics.
+
+Esto significa que tus sitios cargan más rápido, son más confiables y pueden usar dominios personalizados — todo gratis.
+
+## ¿Por qué Cloudflare Pages?
+
+Cuando publicas un sitio en EasySite, se almacena en nuestra base de datos y se sirve a través de nuestra infraestructura. Eso funciona muy bien, pero Cloudflare Pages lo lleva a otro nivel:
+
+- **Red Edge Global** — tu sitio se almacena en caché en más de 300 centros de datos en todo el mundo, para que los visitantes obtengan tiempos de carga ultrarrápidos sin importar dónde estén
+- **SSL gratuito** — HTTPS es automático, sin necesidad de gestionar certificados
+- **Ancho de banda ilimitado** — sin límites de tráfico, incluso en el plan gratuito
+- **Dominios personalizados** — vincula tu propio nombre de dominio directamente a través de Cloudflare
+- **99.99% de disponibilidad** — la infraestructura de Cloudflare está probada en batalla
+
+Lo mejor de todo es que Cloudflare Pages es **gratuito** para la mayoría de los casos de uso. Tú aportas tu propia cuenta de Cloudflare y nosotros nos encargamos del despliegue.
+
+## Cómo funciona
+
+### 1. Conecta tu cuenta de Cloudflare
+
+Ve a tu página de [Perfil](/es/profile) y agrega tu token de API de Cloudflare. Solo necesitas hacer esto una vez.
+
+**Crear un token toma 2 minutos:**
+1. Ve a [Cloudflare API Tokens](https://dash.cloudflare.com/profile/api-tokens)
+2. Crea un token personalizado con estos permisos:
+   - Account → **Cloudflare Pages** → Edit
+   - Account → **Account Settings** → Read
+3. Pega el token en tu perfil de EasySite
+
+EasySite detecta automáticamente tu cuenta — no se necesita Account ID.
+
+### 2. Conecta cada sitio a un proyecto
+
+En tu [Panel de control](/es/dashboard), cada sitio tiene una opción **"Conectar a Cloudflare Pages"**. Puedes:
+
+- **Seleccionar un proyecto existente** de tu cuenta de Cloudflare
+- **Crear un nuevo proyecto** directamente desde EasySite — sin necesidad de visitar el panel de Cloudflare
+
+Cada sitio tiene su propio proyecto de Cloudflare Pages, por lo que pueden tener dominios y configuraciones separadas.
+
+### 3. Publica como siempre
+
+Cuando publicas un sitio, EasySite automáticamente:
+1. Guarda el sitio en nuestra base de datos (como respaldo)
+2. Despliega todos los archivos en tu proyecto de Cloudflare Pages
+3. Devuelve tanto la URL de EasySite como la URL de Cloudflare Pages
+
+Tu sitio está en vivo en la red edge de Cloudflare en segundos.
+
+## Trae tu propia clave (BYOK)
+
+Creemos en darte control total. La integración con Cloudflare Pages usa un modelo **BYOK (Trae tu propia clave)**:
+
+- **Tú eres dueño de la cuenta de Cloudflare** — tus sitios viven en tu infraestructura
+- **Tú eres dueño de los dominios** — configura dominios personalizados directamente en Cloudflare
+- **Puedes irte en cualquier momento** — tus sitios son archivos estándar HTML/CSS/JS en tu cuenta de Cloudflare, sin dependencia del proveedor
+- **Cero costo de alojamiento de nuestra parte** — el nivel gratuito de Cloudflare es suficientemente generoso para la mayoría de los sitios
+
+Esto es fundamentalmente diferente de otros constructores de sitios web que te encierran en su alojamiento. Con EasySite + Cloudflare, obtienes lo mejor de ambos mundos: creación de sitios impulsada por IA con infraestructura que tú controlas.
+
+## Lo que obtienes con el plan gratuito de Cloudflare
+
+| Característica | Plan gratuito |
+|----------------|---------------|
+| Proyectos | Hasta 100 |
+| Despliegues | Ilimitados |
+| Ancho de banda | Ilimitado |
+| Certificados SSL | Gratuitos, automáticos |
+| Dominios personalizados | Incluidos |
+| Protección DDoS | Incluida |
+| Archivos por proyecto | 20,000 |
+
+Eso es más que suficiente para la mayoría de los sitios web.
+
+## Flexibilidad por sitio
+
+A diferencia de un enfoque único para todos, nuestra integración funciona a **nivel de sitio**:
+
+- **Sitio A** → Conectado al proyecto \`my-portfolio\` → \`portfolio.example.com\`
+- **Sitio B** → Conectado al proyecto \`my-blog\` → \`blog.example.com\`
+- **Sitio C** → Sin conexión a Cloudflare → servido directamente desde EasySite
+
+Tú eliges qué sitios desplegar en Cloudflare y cuáles mantener en nuestra plataforma. Mezcla y combina como quieras.
+
+## Exporta tus sitios
+
+¿Quieres alojar tu sitio en otro lugar? Cada sitio en EasySite puede **exportarse como un archivo ZIP** que contiene todos los archivos HTML, CSS y JavaScript. Tu contenido nunca está encerrado.
+
+## Cómo empezar
+
+1. [Crea una cuenta gratuita de Cloudflare](https://cloudflare.com) si no tienes una
+2. [Conecta tu token de API](/es/profile) en tu perfil de EasySite
+3. Ve a tu [Panel de control](/es/dashboard) y conecta tus sitios a Cloudflare Pages
+4. Publica — y observa cómo tu sitio se activa en la red edge global
+
+Todo el proceso de configuración toma menos de 5 minutos.
+
+## Próximos pasos
+
+Seguimos mejorando la integración con Cloudflare:
+
+- **Configuración automática de dominios personalizados** — configura dominios sin salir de EasySite
+- **Vistas previas de despliegue** — previsualiza cambios antes de publicar
+- **Integración de analíticas** — consulta tus analíticas de Cloudflare en el panel de EasySite
+- **Importar desde Cloudflare** — trae sitios existentes de Cloudflare Pages a EasySite para edición con IA
+
+---
+
+¿Listo para desplegar tu sitio web generado con IA en la red edge? [Ve a tu perfil](/es/profile) para conectar Cloudflare, o [crea un nuevo sitio](/es/editor) para empezar.
+`,
+  },
+  ko: {
+    title: "EasySite가 Cloudflare Pages와 통합되었습니다 — AI 생성 사이트를 엣지에 배포하세요",
+    description:
+      "Cloudflare Pages 통합을 발표합니다. AI로 만든 웹사이트를 Cloudflare의 글로벌 엣지 네트워크에 한 번의 클릭으로 배포하세요. 무료 SSL, 무제한 대역폭, 커스텀 도메인 포함.",
+    keywords: [
+      "Cloudflare Pages",
+      "EasySite Cloudflare",
+      "엣지에 웹사이트 배포",
+      "AI 웹사이트 빌더 Cloudflare",
+      "무료 웹사이트 호스팅",
+      "글로벌 CDN 웹사이트",
+      "BYOK Cloudflare",
+      "정적 사이트 호스팅",
+    ],
+    content: `
+## Cloudflare Pages 통합 발표
+
+EasySite가 이제 **Cloudflare Pages**와 직접 통합되었음을 기쁘게 알려드립니다 — 몇 번의 클릭만으로 AI로 생성한 웹사이트를 Cloudflare의 글로벌 엣지 네트워크에 배포할 수 있습니다.
+
+이는 사이트가 더 빠르게 로드되고, 더 안정적이며, 커스텀 도메인을 사용할 수 있다는 것을 의미합니다 — 모두 무료입니다.
+
+## 왜 Cloudflare Pages인가?
+
+EasySite에서 사이트를 게시하면 데이터베이스에 저장되고 우리 인프라를 통해 제공됩니다. 이것도 잘 작동하지만, Cloudflare Pages는 한 단계 더 나아갑니다:
+
+- **글로벌 엣지 네트워크** — 전 세계 300개 이상의 데이터 센터에 사이트가 캐시되어 방문자가 어디에 있든 빠른 로딩 시간을 제공합니다
+- **무료 SSL** — HTTPS가 자동으로 활성화되며, 인증서 관리가 필요 없습니다
+- **무제한 대역폭** — 무료 플랜에서도 트래픽 제한이 없습니다
+- **커스텀 도메인** — Cloudflare를 통해 직접 자신만의 도메인 이름을 연결합니다
+- **99.99% 가동률** — Cloudflare의 인프라는 실전에서 검증되었습니다
+
+가장 좋은 점은 Cloudflare Pages가 대부분의 사용 사례에서 **무료**라는 것입니다. 자신의 Cloudflare 계정을 사용하고, 우리가 배포를 처리합니다.
+
+## 사용 방법
+
+### 1. Cloudflare 계정 연결
+
+[프로필](/ko/profile) 페이지에서 Cloudflare API 토큰을 추가합니다. 한 번만 설정하면 됩니다.
+
+**토큰 생성은 2분이면 됩니다:**
+1. [Cloudflare API 토큰](https://dash.cloudflare.com/profile/api-tokens)으로 이동합니다
+2. 다음 권한으로 커스텀 토큰을 생성합니다:
+   - Account → **Cloudflare Pages** → Edit
+   - Account → **Account Settings** → Read
+3. 토큰을 EasySite 프로필에 붙여넣습니다
+
+EasySite가 자동으로 계정을 감지합니다 — Account ID가 필요 없습니다.
+
+### 2. 각 사이트를 프로젝트에 연결
+
+[대시보드](/ko/dashboard)에서 각 사이트에 **"Cloudflare Pages에 연결"** 옵션이 있습니다. 다음을 할 수 있습니다:
+
+- **기존 프로젝트 선택** — Cloudflare 계정에서 선택
+- **새 프로젝트 생성** — EasySite에서 직접 생성, Cloudflare 대시보드를 방문할 필요 없음
+
+각 사이트는 자체 Cloudflare Pages 프로젝트를 가지므로 별도의 도메인과 설정을 가질 수 있습니다.
+
+### 3. 평소처럼 게시
+
+사이트를 게시하면 EasySite가 자동으로:
+1. 사이트를 데이터베이스에 저장합니다 (백업용)
+2. 모든 파일을 Cloudflare Pages 프로젝트에 배포합니다
+3. EasySite URL과 Cloudflare Pages URL을 모두 반환합니다
+
+사이트가 몇 초 만에 Cloudflare의 엣지 네트워크에서 라이브됩니다.
+
+## 자체 키 사용 (BYOK)
+
+우리는 완전한 제어권을 드리는 것을 믿습니다. Cloudflare Pages 통합은 **BYOK (자체 키 사용)** 모델을 사용합니다:
+
+- **Cloudflare 계정을 소유합니다** — 사이트가 자신의 인프라에 존재합니다
+- **도메인을 소유합니다** — Cloudflare에서 직접 커스텀 도메인을 구성합니다
+- **언제든지 떠날 수 있습니다** — 사이트는 Cloudflare 계정의 표준 HTML/CSS/JS 파일이며, 벤더 종속이 없습니다
+- **우리 측에서 호스팅 비용 없음** — Cloudflare의 무료 티어는 대부분의 사이트에 충분히 넉넉합니다
+
+이것은 자체 호스팅에 종속시키는 다른 웹사이트 빌더와 근본적으로 다릅니다. EasySite + Cloudflare를 사용하면 양쪽의 장점을 모두 얻을 수 있습니다: AI 기반 사이트 생성 + 자신이 제어하는 인프라.
+
+## Cloudflare 무료 플랜에 포함된 내용
+
+| 기능 | 무료 플랜 |
+|------|-----------|
+| 프로젝트 | 최대 100개 |
+| 배포 | 무제한 |
+| 대역폭 | 무제한 |
+| SSL 인증서 | 무료, 자동 |
+| 커스텀 도메인 | 포함 |
+| DDoS 보호 | 포함 |
+| 프로젝트당 파일 | 20,000 |
+
+대부분의 웹사이트에 충분하고도 남습니다.
+
+## 사이트별 유연성
+
+일괄 적용 방식과 달리, 우리의 통합은 **사이트 수준**에서 작동합니다:
+
+- **사이트 A** → \`my-portfolio\` 프로젝트에 연결 → \`portfolio.example.com\`
+- **사이트 B** → \`my-blog\` 프로젝트에 연결 → \`blog.example.com\`
+- **사이트 C** → Cloudflare 연결 없음 → EasySite에서 직접 제공
+
+어떤 사이트를 Cloudflare에 배포하고 어떤 사이트를 플랫폼에 유지할지 선택합니다. 자유롭게 조합하세요.
+
+## 사이트 내보내기
+
+사이트를 다른 곳에서 호스팅하고 싶으신가요? EasySite의 모든 사이트는 HTML, CSS, JavaScript 파일이 모두 포함된 **ZIP 파일로 내보내기**할 수 있습니다. 콘텐츠가 절대 종속되지 않습니다.
+
+## 시작하기
+
+1. Cloudflare 계정이 없다면 [무료 계정 만들기](https://cloudflare.com)
+2. EasySite 프로필에서 [API 토큰 연결](/ko/profile)
+3. [대시보드](/ko/dashboard)로 가서 사이트를 Cloudflare Pages에 연결
+4. 게시 — 사이트가 글로벌 엣지에서 라이브되는 것을 확인하세요
+
+전체 설정 과정은 5분도 걸리지 않습니다.
+
+## 다음 계획
+
+Cloudflare 통합을 계속 개선하고 있습니다:
+
+- **자동 커스텀 도메인 설정** — EasySite를 떠나지 않고 도메인 구성
+- **배포 미리보기** — 라이브 전에 변경 사항 미리보기
+- **분석 통합** — EasySite 대시보드에서 Cloudflare 분석 확인
+- **Cloudflare에서 가져오기** — 기존 Cloudflare Pages 사이트를 EasySite로 가져와 AI로 편집
+
+---
+
+AI로 생성한 웹사이트를 엣지에 배포할 준비가 되셨나요? [프로필로 이동](/ko/profile)하여 Cloudflare를 연결하거나, [새 사이트 만들기](/ko/editor)로 시작하세요.
+`,
+  },
 };
 
 export default article;

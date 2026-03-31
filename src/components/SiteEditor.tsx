@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
+import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -17,34 +18,162 @@ type Dict = {
     code: string;
     newSite: string;
     loginToManage: string;
+    registerPrivate: string;
     saveDraft: string;
+  };
+  nav: {
+    home: string;
+    dashboard: string;
+    pricing: string;
+    models: string;
+    blog: string;
+    gallery: string;
+    login: string;
   };
 };
 
 type Files = Record<string, string>;
 
+const PROSE_CLASSES = "prose prose-sm max-w-none prose-p:my-1 prose-pre:my-2 prose-headings:my-2 prose-headings:text-foreground prose-p:text-foreground prose-li:text-foreground prose-strong:text-foreground prose-a:text-accent prose-code:text-accent prose-code:bg-background/50 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-background/50 prose-pre:text-foreground";
+
+// Render assistant message with <think> blocks shown as collapsible sections
+function AssistantMessage({ content }: { content: string }) {
+  const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
+  const parts: { type: "think" | "text"; content: string }[] = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = thinkRegex.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push({ type: "text", content: content.slice(lastIndex, match.index) });
+    }
+    parts.push({ type: "think", content: match[1].trim() });
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < content.length) {
+    parts.push({ type: "text", content: content.slice(lastIndex) });
+  }
+
+  // No think blocks — render normally
+  if (parts.length === 1 && parts[0].type === "text") {
+    return (
+      <div className={PROSE_CLASSES}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {parts.map((part, i) =>
+        part.type === "think" ? (
+          <details key={i} className="mb-2 rounded-md border border-card-border bg-background/30 overflow-hidden">
+            <summary className="px-3 py-1.5 text-xs font-medium text-muted cursor-pointer select-none hover:text-foreground transition">
+              Thinking...
+            </summary>
+            <div className={`px-3 py-2 text-xs text-muted border-t border-card-border ${PROSE_CLASSES}`}>
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>{part.content}</ReactMarkdown>
+            </div>
+          </details>
+        ) : (
+          <div key={i} className={PROSE_CLASSES}>
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{part.content.trim()}</ReactMarkdown>
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
+// Strip <think>...</think> reasoning blocks from model output (Qwen3 models)
+function stripThinkBlocks(response: string): string {
+  return response.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+}
+
 // Parse AI response into files: { "index.html": "...", "style.css": "..." }
+// Supports partial updates — only returns files that appear in the response
 function parseFiles(response: string): Files {
+  const cleaned = stripThinkBlocks(response);
   const files: Files = {};
-  // Match ```lang filename=xxx\n...\n```
+  // Match ```lang filename=xxx\n...\n``` (supports nested backticks by being non-greedy)
   const regex = /```(\w+)\s+filename=([^\n]+)\n([\s\S]*?)```/g;
   let match;
-  while ((match = regex.exec(response)) !== null) {
+  while ((match = regex.exec(cleaned)) !== null) {
     const filename = match[2].trim();
     files[filename] = match[3].trimEnd();
   }
 
   // Fallback: if no filename= blocks found, try old single-HTML format
   if (Object.keys(files).length === 0) {
-    const htmlMatch = response.match(/```html\n([\s\S]*?)```/);
+    const htmlMatch = cleaned.match(/```html\n([\s\S]*?)```/);
     if (htmlMatch) {
       files["index.html"] = htmlMatch[1].trimEnd();
-    } else if (response.trim().startsWith("<!DOCTYPE")) {
-      files["index.html"] = response.trim();
+    } else if (cleaned.startsWith("<!DOCTYPE")) {
+      files["index.html"] = cleaned;
     }
   }
 
   return files;
+}
+
+// If the AI inlined styles/scripts into HTML instead of creating separate files,
+// extract them into style.css and script.js automatically.
+function extractInlineAssets(files: Files): Files {
+  const html = files["index.html"];
+  if (!html) return files;
+
+  // Already has separate style.css — skip extraction
+  if (files["style.css"] && files["script.js"]) return files;
+
+  const result = { ...files };
+  let updatedHtml = html;
+
+  // Extract <style> blocks into style.css (if no style.css exists)
+  if (!files["style.css"]) {
+    const styleBlocks: string[] = [];
+    updatedHtml = updatedHtml.replace(
+      /<style[^>]*>([\s\S]*?)<\/style>/gi,
+      (_match, css: string) => {
+        const trimmed = css.trim();
+        if (trimmed) styleBlocks.push(trimmed);
+        return '<link rel="stylesheet" href="style.css">';
+      }
+    );
+    if (styleBlocks.length > 0) {
+      result["style.css"] = styleBlocks.join("\n\n");
+    }
+  }
+
+  // Extract inline <script> blocks into script.js (if no script.js exists)
+  // Skip scripts with src= (those are CDN links like Google Fonts, etc.)
+  if (!files["script.js"]) {
+    const scriptBlocks: string[] = [];
+    updatedHtml = updatedHtml.replace(
+      /<script(?![^>]*\bsrc\b)[^>]*>([\s\S]*?)<\/script>/gi,
+      (_match, js: string) => {
+        const trimmed = js.trim();
+        if (trimmed) {
+          scriptBlocks.push(trimmed);
+          return '<script src="script.js"></script>';
+        }
+        return "";
+      }
+    );
+    if (scriptBlocks.length > 0) {
+      result["script.js"] = scriptBlocks.join("\n\n");
+    }
+  }
+
+  result["index.html"] = updatedHtml;
+  return result;
+}
+
+// Merge partial file updates from AI with existing files
+// AI in editing mode only outputs changed files — merge them with the current set
+function mergeFiles(existing: Files, updates: Files): Files {
+  if (Object.keys(existing).length === 0) return updates;
+  if (Object.keys(updates).length === 0) return existing;
+  return { ...existing, ...updates };
 }
 
 // Build a preview HTML that inlines CSS and JS for the iframe
@@ -131,34 +260,39 @@ export default function SiteEditor({
   const [currentSiteId, setCurrentSiteId] = useState<string | undefined>(siteId);
   const [chatHistory, setChatHistory] = useState<{ role: string; content: string }[]>([]);
   const [streamingContent, setStreamingContent] = useState("");
-  const [selectedModel, setSelectedModel] = useState("openrouter/auto");
+  const [selectedModel, setSelectedModel] = useState("auto");
+  const [activeModel, setActiveModel] = useState<string | null>(null);
   const [models, setModels] = useState<{ id: string; name: string; tier: string; available: boolean }[]>([]);
   const [userPlan, setUserPlan] = useState("free");
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const fileNames = useMemo(() => Object.keys(files), [files]);
   const hasFiles = fileNames.length > 0;
   const previewHtml = useMemo(() => buildPreviewHtml(files), [files]);
 
-  // Check auth state & load models
+  // Hide shared Navbar and Footer — editor has its own built-in nav
   useEffect(() => {
-    fetch("/auth/profile")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => { if (data) setUser(data); })
-      .catch(() => {});
+    const nav = document.querySelector<HTMLElement>("nav.sticky");
+    const footer = document.querySelector<HTMLElement>("footer");
+    if (nav) nav.style.display = "none";
+    if (footer) footer.style.display = "none";
+    return () => {
+      if (nav) nav.style.display = "";
+      if (footer) footer.style.display = "";
+    };
+  }, []);
 
+  // Load models and auth state in a single request (no separate /auth/profile call)
+  useEffect(() => {
     fetch("/api/models")
       .then((r) => r.json())
       .then((data) => {
         setModels(data.models || []);
         setUserPlan(data.plan || "free");
-        // Default to best available model
-        const available = (data.models || []).filter((m: { available: boolean }) => m.available);
-        if (available.length > 0) {
-          setSelectedModel(available[available.length - 1].id);
-        }
+        if (data.user) setUser(data.user);
       })
       .catch(() => {});
   }, []);
@@ -192,15 +326,37 @@ export default function SiteEditor({
     }
   }, [chatHistory, streamingContent]);
 
+  // Cancel an in-progress generation (inspired by Claude-Code's abort handling)
+  const handleCancel = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+  };
+
+  // Detect if AI output was truncated mid-code-block (inspired by Claude-Code's max_output_tokens recovery)
+  function detectTruncation(response: string): boolean {
+    const openBlocks = (response.match(/```\w+\s+filename=/g) || []).length;
+    const closeBlocks = (response.match(/\n```(?:\n|$)/g) || []).length;
+    return openBlocks > closeBlocks;
+  }
+
   const handleGenerate = async () => {
     if (!prompt.trim() || loading) return;
     setLoading(true);
     setPublishedUrl(null);
 
+    // Set up abort controller for cancellation
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     const userMessage = { role: "user", content: prompt };
     setChatHistory((prev) => [...prev, userMessage]);
     const currentPrompt = prompt;
     setPrompt("");
+
+    // Snapshot current files before generation for merge
+    const existingFiles = { ...files };
 
     try {
       const res = await fetch("/api/chat", {
@@ -211,11 +367,19 @@ export default function SiteEditor({
           model: selectedModel,
           files: hasFiles ? files : undefined,
           siteId: currentSiteId,
-          history: chatHistory.slice(-6),
+          history: chatHistory.slice(-8),
         }),
+        signal: controller.signal,
       });
 
-      if (!res.ok) throw new Error("Generation failed");
+      if (!res.ok) {
+        const errorText = await res.text().catch(() => "Unknown error");
+        throw new Error(`Generation failed: ${res.status} ${errorText.slice(0, 100)}`);
+      }
+
+      // Track which model was actually used (important for auto mode)
+      const modelUsed = res.headers.get("X-Model-Used");
+      if (modelUsed) setActiveModel(modelUsed);
 
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
@@ -228,19 +392,27 @@ export default function SiteEditor({
         fullResponse += chunk;
         setStreamingContent(fullResponse);
 
-        // Live-parse files during streaming
+        // Live-parse files during streaming and merge with existing
         const parsed = parseFiles(fullResponse);
         if (Object.keys(parsed).length > 0) {
-          setFiles(parsed);
+          const merged = mergeFiles(existingFiles, parsed);
+          setFiles(merged);
         }
       }
 
-      // Final parse
-      const finalFiles = parseFiles(fullResponse);
-      if (Object.keys(finalFiles).length > 0) {
-        setFiles(finalFiles);
-        // Switch to preview after generation
+      // Final parse, extract inline assets, and merge
+      let finalParsed = parseFiles(fullResponse);
+      if (Object.keys(finalParsed).length > 0) {
+        finalParsed = extractInlineAssets(finalParsed);
+        const finalMerged = mergeFiles(existingFiles, finalParsed);
+        setFiles(finalMerged);
         setActiveTab("preview");
+      }
+
+      // Detect truncated output and warn user (inspired by Claude-Code's max_output_tokens recovery)
+      const wasTruncated = detectTruncation(fullResponse);
+      if (wasTruncated) {
+        fullResponse += "\n\n⚠️ *Output was truncated. Say \"continue\" to finish the remaining code.*";
       }
 
       setStreamingContent("");
@@ -248,13 +420,65 @@ export default function SiteEditor({
         ...prev,
         { role: "assistant", content: fullResponse },
       ]);
-    } catch {
-      setChatHistory((prev) => [
-        ...prev,
-        { role: "assistant", content: "Error generating site. Please try again." },
-      ]);
+
+      // Auto-publish for anonymous users after each turn
+      if (!user && Object.keys(finalParsed).length > 0) {
+        autoPublish(mergeFiles(existingFiles, finalParsed));
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        // User cancelled — keep whatever was streamed so far
+        const partial = streamingContent || "";
+        setStreamingContent("");
+        if (partial.trim()) {
+          const partialParsed = parseFiles(partial);
+          if (Object.keys(partialParsed).length > 0) {
+            setFiles(mergeFiles(existingFiles, partialParsed));
+          }
+          setChatHistory((prev) => [
+            ...prev,
+            { role: "assistant", content: partial + "\n\n⚠️ *Stopped. Partial output kept. Say \"continue\" to resume.*" },
+          ]);
+        } else {
+          setChatHistory((prev) => [
+            ...prev,
+            { role: "assistant", content: "*(Cancelled)*" },
+          ]);
+        }
+      } else {
+        const message = err instanceof Error ? err.message : "Unknown error";
+        setChatHistory((prev) => [
+          ...prev,
+          { role: "assistant", content: `Error generating site: ${message}. Please try again.` },
+        ]);
+      }
     } finally {
       setLoading(false);
+      abortControllerRef.current = null;
+    }
+  };
+
+  // Auto-publish for anonymous users (fire-and-forget, no loading state)
+  const autoPublish = async (filesToPublish: Files) => {
+    try {
+      const res = await fetch("/api/publish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          files: filesToPublish,
+          siteId: currentSiteId,
+          title:
+            chatHistory.find((m) => m.role === "user")?.content.slice(0, 50) ||
+            "My Site",
+        }),
+      });
+      const data = await res.json();
+      if (data.url) {
+        setPublishedUrl(data.url);
+        if (data.siteId) setCurrentSiteId(data.siteId.toString());
+      }
+    } catch {
+      // Silent fail for auto-publish
     }
   };
 
@@ -301,19 +525,57 @@ export default function SiteEditor({
     setFiles((prev) => ({ ...prev, [name]: content }));
   };
 
+  const totalSize = Object.values(files).reduce((sum, c) => sum + c.length, 0);
+  const resolvedModelName = (() => {
+    if (selectedModel === "auto") {
+      if (activeModel) {
+        const found = models.find((m) => m.id === activeModel);
+        const name = found?.name || activeModel.split("/").pop()?.replace(/:free$/, "") || "Auto";
+        return `Auto (${name})`;
+      }
+      return "Auto";
+    }
+    return models.find((m) => m.id === selectedModel)?.name || selectedModel.split("/").pop() || "Auto";
+  })();
+
   return (
-    <div className="flex flex-col lg:flex-row h-[calc(100vh-4rem)]">
+    <div className="flex flex-col h-screen">
+    {/* Editor Nav */}
+    <nav className="flex items-center justify-between px-4 h-12 border-b border-card-border bg-background shrink-0">
+      <div className="flex items-center gap-4">
+        <Link href={`/${locale}`} className="text-lg font-bold gradient-text">
+          EasySite
+        </Link>
+        <div className="hidden sm:flex items-center gap-3 text-xs text-muted">
+          <Link href={`/${locale}`} className="hover:text-foreground transition">{dict.nav.home}</Link>
+          <Link href={`/${locale}/pricing`} className="hover:text-foreground transition">{dict.nav.pricing}</Link>
+          <Link href={`/${locale}/models`} className="hover:text-foreground transition">{dict.nav.models}</Link>
+          <Link href={`/${locale}/blog`} className="hover:text-foreground transition">{dict.nav.blog}</Link>
+          <Link href={`/${locale}/gallery`} className="hover:text-foreground transition">{dict.nav.gallery}</Link>
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={handleNew}
+          className="text-xs text-accent hover:text-accent-dark transition"
+        >
+          + {dict.editor.newSite}
+        </button>
+        {user ? (
+          <Link href={`/${locale}/dashboard`} className="text-xs text-muted hover:text-foreground transition">
+            {dict.nav.dashboard}
+          </Link>
+        ) : (
+          <a href="/auth/login" className="text-xs rounded-md bg-accent px-3 py-1 text-white hover:bg-accent-dark transition">
+            {dict.nav.login}
+          </a>
+        )}
+      </div>
+    </nav>
+
+    <div className="flex flex-col lg:flex-row flex-1 min-h-0">
       {/* Left: Chat panel */}
       <div className="flex flex-col w-full lg:w-100 border-b lg:border-b-0 lg:border-r border-card-border bg-background">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-card-border">
-          <h2 className="font-semibold">{dict.editor.title}</h2>
-          <button
-            onClick={handleNew}
-            className="text-sm text-accent hover:text-accent-dark"
-          >
-            {dict.editor.newSite}
-          </button>
-        </div>
 
         {/* Chat messages */}
         <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0 max-h-[30vh] lg:max-h-none">
@@ -335,9 +597,7 @@ export default function SiteEditor({
               }`}
             >
               {msg.role === "assistant" ? (
-                <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-2 prose-headings:my-2">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
-                </div>
+                <AssistantMessage content={msg.content} />
               ) : (
                 msg.content
               )}
@@ -346,9 +606,7 @@ export default function SiteEditor({
           {loading && (
             <div className="bg-card-bg text-foreground mr-6 rounded-lg px-3 py-2 text-sm">
               {streamingContent ? (
-                <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-2 prose-headings:my-2">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingContent}</ReactMarkdown>
-                </div>
+                <AssistantMessage content={streamingContent} />
               ) : (
                 <span className="inline-flex gap-1">
                   <span className="animate-bounce">.</span>
@@ -395,35 +653,11 @@ export default function SiteEditor({
         )}
 
         {/* Input */}
-        <div className="p-4 border-t border-card-border space-y-2">
+        <div className="p-3 border-t border-card-border">
           {!user && (
-            <p className="text-xs text-muted">{dict.editor.loginToManage}</p>
+            <p className="text-xs text-muted mb-2 px-1">{dict.editor.loginToManage}</p>
           )}
-          {/* Model selector */}
-          {models.length > 0 && (
-            <div className="flex items-center gap-2">
-              <select
-                value={selectedModel}
-                onChange={(e) => setSelectedModel(e.target.value)}
-                className="flex-1 text-xs rounded-md border border-card-border bg-card-bg px-2 py-1.5 text-foreground focus:outline-none focus:border-accent appearance-none cursor-pointer"
-              >
-                {models.map((m) => (
-                  <option key={m.id} value={m.id} disabled={!m.available}>
-                    {m.name} {!m.available ? `(${m.tier})` : ""}
-                  </option>
-                ))}
-              </select>
-              {userPlan === "free" && (
-                <a
-                  href={`/${locale}/pricing`}
-                  className="shrink-0 text-xs text-accent hover:underline"
-                >
-                  Upgrade
-                </a>
-              )}
-            </div>
-          )}
-          <div className="flex gap-2">
+          <div className="rounded-xl border border-card-border bg-card-bg focus-within:border-accent transition">
             <textarea
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
@@ -435,48 +669,91 @@ export default function SiteEditor({
               }}
               placeholder={dict.editor.placeholder}
               rows={2}
-              className="flex-1 resize-none rounded-lg border border-card-border bg-card-bg px-3 py-2 text-sm focus:outline-none focus:border-accent"
+              className="w-full resize-none bg-transparent px-3 pt-3 pb-1 text-sm text-foreground placeholder:text-muted/60 focus:outline-none"
             />
-            <button
-              onClick={handleGenerate}
-              disabled={loading || !prompt.trim()}
-              className="self-end rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-dark transition disabled:opacity-50"
-            >
-              {loading ? "..." : dict.editor.send}
-            </button>
+            <div className="flex items-center justify-between px-2 pb-2">
+              <div className="flex items-center gap-1.5">
+                {models.length > 0 && (
+                  <select
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel(e.target.value)}
+                    className="text-xs rounded-md bg-background/50 border border-card-border px-2 py-1 text-muted hover:text-foreground focus:outline-none focus:border-accent appearance-none cursor-pointer"
+                  >
+                    {models.map((m) => (
+                      <option key={m.id} value={m.id} disabled={!m.available}>
+                        {m.name} {!m.available ? `(${m.tier})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {userPlan === "free" && (
+                  <a
+                    href={`/${locale}/pricing`}
+                    className="text-xs text-accent hover:underline"
+                  >
+                    Upgrade
+                  </a>
+                )}
+              </div>
+              {loading ? (
+                <button
+                  onClick={handleCancel}
+                  className="rounded-lg border border-danger/30 bg-danger/10 p-1.5 text-danger hover:bg-danger/20 transition"
+                  title="Stop"
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9a2.25 2.25 0 012.25 2.25v9a2.25 2.25 0 01-2.25 2.25h-9a2.25 2.25 0 01-2.25-2.25v-9z" />
+                  </svg>
+                </button>
+              ) : (
+                <button
+                  onClick={handleGenerate}
+                  disabled={!prompt.trim()}
+                  className="rounded-lg bg-accent p-1.5 text-white hover:bg-accent-dark transition disabled:opacity-30"
+                  title={dict.editor.send}
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+                  </svg>
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
 
       {/* Right: Preview / File tabs */}
       <div className="flex-1 flex flex-col min-h-0">
-        {/* Tabs & Actions */}
-        <div className="flex items-center justify-between px-4 py-2 border-b border-card-border overflow-x-auto">
-          <div className="flex items-center gap-1 min-w-0">
-            {/* Preview tab */}
+        {/* Toolbar */}
+        <div className="flex items-center justify-between px-2 py-1.5 border-b border-card-border bg-card-bg/30">
+          {/* Left: Tabs */}
+          <div className="flex items-center gap-0.5 min-w-0 overflow-x-auto">
             <button
               onClick={() => setActiveTab("preview")}
-              className={`shrink-0 px-3 py-1.5 text-sm rounded-md transition ${
+              className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition ${
                 activeTab === "preview"
-                  ? "bg-card-bg text-foreground shadow-sm"
-                  : "text-muted hover:text-foreground"
+                  ? "bg-background text-foreground shadow-sm border border-card-border"
+                  : "text-muted hover:text-foreground hover:bg-background/50"
               }`}
             >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
               {dict.editor.preview}
             </button>
 
-            {/* File tabs */}
             {fileNames.map((name) => (
               <button
                 key={name}
                 onClick={() => setActiveTab(name)}
-                className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition ${
+                className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition ${
                   activeTab === name
-                    ? "bg-card-bg text-foreground shadow-sm"
-                    : "text-muted hover:text-foreground"
+                    ? "bg-background text-foreground shadow-sm border border-card-border"
+                    : "text-muted hover:text-foreground hover:bg-background/50"
                 }`}
               >
-                <span className={`text-xs font-bold ${getFileColor(name)}`}>
+                <span className={`font-bold ${getFileColor(name)}`}>
                   {getFileIcon(name)}
                 </span>
                 {name}
@@ -484,45 +761,60 @@ export default function SiteEditor({
             ))}
           </div>
 
-          <div className="flex items-center gap-2 shrink-0 ml-2">
+          {/* Right: Actions */}
+          <div className="flex items-center gap-1.5 shrink-0 ml-2">
             {publishedUrl && (
               <a
                 href={publishedUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xs text-accent hover:underline truncate max-w-50"
+                className="hidden sm:flex items-center gap-1 text-xs text-success hover:underline truncate max-w-40"
               >
-                {publishedUrl}
+                <svg className="h-3 w-3 shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                </svg>
+                {publishedUrl.replace(/^\/s\//, "")}
               </a>
             )}
+
             <button
               onClick={async () => {
                 const { exportSiteAsZip } = await import("@/lib/export-site");
                 await exportSiteAsZip(files, "my-site");
               }}
               disabled={!hasFiles}
-              className="rounded-lg border border-card-border px-3 py-1.5 text-sm font-medium text-muted hover:text-foreground hover:border-accent transition disabled:opacity-50"
+              className="rounded-md border border-card-border p-1.5 text-muted hover:text-foreground hover:border-accent transition disabled:opacity-50"
               title="Export as ZIP"
             >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
               </svg>
             </button>
-            <button
-              onClick={handlePublish}
-              disabled={!hasFiles || publishing}
-              className={`rounded-lg px-4 py-1.5 text-sm font-medium text-white transition disabled:opacity-50 ${
-                publishedUrl
-                  ? "bg-success hover:bg-success/80"
-                  : "bg-accent hover:bg-accent-dark"
-              }`}
-            >
-              {publishing
-                ? dict.editor.publishing
-                : publishedUrl
-                  ? dict.editor.published
-                  : dict.editor.publish}
-            </button>
+
+            {user ? (
+              <button
+                onClick={handlePublish}
+                disabled={!hasFiles || publishing}
+                className={`rounded-md px-3 py-1.5 text-xs font-medium text-white transition disabled:opacity-50 ${
+                  publishedUrl
+                    ? "bg-success hover:bg-success/80"
+                    : "bg-accent hover:bg-accent-dark"
+                }`}
+              >
+                {publishing
+                  ? dict.editor.publishing
+                  : publishedUrl
+                    ? dict.editor.published
+                    : dict.editor.publish}
+              </button>
+            ) : (
+              <a
+                href="/auth/login"
+                className="rounded-md px-3 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-dark transition"
+              >
+                {dict.editor.registerPrivate}
+              </a>
+            )}
           </div>
         </div>
 
@@ -556,6 +848,29 @@ export default function SiteEditor({
           )}
         </div>
       </div>
+    </div>
+
+    {/* Status bar */}
+    <div className="flex items-center justify-between px-4 py-1 border-t border-card-border bg-card-bg text-xs text-muted shrink-0">
+      <div className="flex items-center gap-3">
+        <span className="flex items-center gap-1">
+          <span className={`inline-block w-1.5 h-1.5 rounded-full ${loading ? "bg-yellow-400 animate-pulse" : hasFiles ? "bg-green-400" : "bg-muted/50"}`} />
+          {loading ? "Generating..." : hasFiles ? "Ready" : "No site"}
+        </span>
+        {hasFiles && (
+          <span>{fileNames.length} file{fileNames.length > 1 ? "s" : ""} · {totalSize < 1024 ? `${totalSize} B` : `${(totalSize / 1024).toFixed(1)} KB`}</span>
+        )}
+        {chatHistory.filter((m) => m.role === "user").length > 0 && (
+          <span>{chatHistory.filter((m) => m.role === "user").length} turn{chatHistory.filter((m) => m.role === "user").length > 1 ? "s" : ""}</span>
+        )}
+      </div>
+      <div className="flex items-center gap-3">
+        {publishedUrl && (
+          <span className="text-green-400">Published</span>
+        )}
+        <span>{resolvedModelName}</span>
+      </div>
+    </div>
     </div>
   );
 }

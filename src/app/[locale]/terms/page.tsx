@@ -127,6 +127,130 @@ const content = {
       },
     ],
   },
+  es: {
+    title: "Términos de Servicio",
+    lastUpdated: "Última actualización: 31 de marzo de 2026",
+    sections: [
+      {
+        heading: "1. Aceptación de los Términos",
+        body: "Al acceder o utilizar EasySite (\"Servicio\"), operado por JY Tech LLC (\"nosotros\", \"nuestro\"), usted acepta estar sujeto a estos Términos de Servicio. Si no está de acuerdo con estos términos, no utilice el Servicio.",
+      },
+      {
+        heading: "2. Descripción del Servicio",
+        body: "EasySite es un creador de sitios web impulsado por IA que permite a los usuarios crear, publicar y administrar sitios web estáticos. El Servicio incluye contenido generado por IA, alojamiento de sitios web, integración con Cloudflare Pages y funciones de exportación de sitios.",
+      },
+      {
+        heading: "3. Cuentas de Usuario",
+        body: "Puede utilizar ciertas funciones sin una cuenta. Para acceder al Servicio completo, debe crear una cuenta mediante la autenticación de Auth0. Usted es responsable de mantener la seguridad de las credenciales de su cuenta y de todas las actividades que ocurran bajo su cuenta.",
+      },
+      {
+        heading: "4. Uso Aceptable",
+        body: "Usted acepta no utilizar el Servicio para: (a) crear sitios web que contengan contenido ilegal, dañino u ofensivo; (b) infringir los derechos de propiedad intelectual de terceros; (c) distribuir malware o contenido de phishing; (d) intentar obtener acceso no autorizado al Servicio o sus sistemas; (e) utilizar medios automatizados para abusar del Servicio más allá del uso normal.",
+      },
+      {
+        heading: "5. Propiedad del Contenido",
+        body: "Usted conserva la propiedad del contenido que crea utilizando el Servicio. Al publicar contenido a través del Servicio, nos otorga una licencia no exclusiva y mundial para alojar y mostrar su contenido con el fin de operar el Servicio. Puede exportar o eliminar su contenido en cualquier momento.",
+      },
+      {
+        heading: "6. Contenido Generado por IA",
+        body: "El contenido generado por la IA se proporciona \"tal cual\". Aunque nos esforzamos por la calidad, no garantizamos que el contenido generado por IA esté libre de errores, sea preciso o adecuado para cualquier propósito particular. Usted es responsable de revisar y editar todo el contenido generado por IA antes de publicarlo.",
+      },
+      {
+        heading: "7. Integraciones de Terceros",
+        body: "El Servicio se integra con servicios de terceros, incluidos Cloudflare, Auth0 y Stripe. Su uso de estas integraciones está sujeto a los respectivos términos de servicio de terceros. No somos responsables de la disponibilidad o el rendimiento de los servicios de terceros. Al utilizar las funciones BYOK (Traiga Su Propia Clave), usted es responsable de administrar sus propias claves API y credenciales.",
+      },
+      {
+        heading: "8. Pago y Suscripciones",
+        body: "Los planes de pago se facturan mensualmente a través de Stripe. Puede cancelar su suscripción en cualquier momento. Los reembolsos se manejan caso por caso. Si reduce su plan, puede perder acceso a funciones disponibles solo en niveles superiores.",
+      },
+      {
+        heading: "9. Disponibilidad del Servicio",
+        body: "Nos esforzamos por mantener una alta disponibilidad, pero no garantizamos el acceso ininterrumpido al Servicio. Nos reservamos el derecho de modificar, suspender o descontinuar cualquier parte del Servicio con un aviso razonable.",
+      },
+      {
+        heading: "10. Limitación de Responsabilidad",
+        body: "En la máxima medida permitida por la ley, JY Tech LLC no será responsable de ningún daño indirecto, incidental, especial, consecuente o punitivo derivado de su uso del Servicio. Nuestra responsabilidad total no excederá la cantidad que nos haya pagado en los 12 meses anteriores a la reclamación.",
+      },
+      {
+        heading: "11. Terminación",
+        body: "Podemos terminar o suspender su cuenta si viola estos términos. Tras la terminación, su derecho a usar el Servicio cesa inmediatamente. Puede exportar su contenido antes de la terminación. Podemos retener ciertos datos según lo requiera la ley.",
+      },
+      {
+        heading: "12. Cambios en los Términos",
+        body: "Podemos actualizar estos términos de vez en cuando. Le notificaremos sobre cambios importantes por correo electrónico o a través del Servicio. El uso continuado del Servicio después de los cambios constituye la aceptación de los términos actualizados.",
+      },
+      {
+        heading: "13. Ley Aplicable",
+        body: "Estos términos se rigen por las leyes del Estado de California, Estados Unidos, sin tener en cuenta los principios de conflicto de leyes.",
+      },
+      {
+        heading: "14. Contacto",
+        body: "Para preguntas sobre estos términos, contáctenos en support@jytech.us.",
+      },
+    ],
+  },
+  ko: {
+    title: "서비스 약관",
+    lastUpdated: "최종 업데이트: 2026년 3월 31일",
+    sections: [
+      {
+        heading: "1. 약관 동의",
+        body: "JY Tech LLC(\"당사\")가 운영하는 EasySite(\"서비스\")에 접근하거나 사용함으로써 귀하는 본 서비스 약관에 구속되는 것에 동의합니다. 본 약관에 동의하지 않는 경우 서비스를 사용하지 마십시오.",
+      },
+      {
+        heading: "2. 서비스 설명",
+        body: "EasySite는 사용자가 정적 웹사이트를 생성, 게시 및 관리할 수 있는 AI 기반 웹사이트 빌더입니다. 서비스에는 AI 생성 콘텐츠, 웹사이트 호스팅, Cloudflare Pages 통합 및 사이트 내보내기 기능이 포함됩니다.",
+      },
+      {
+        heading: "3. 사용자 계정",
+        body: "계정 없이도 일부 기능을 사용할 수 있습니다. 전체 서비스에 접근하려면 Auth0 인증을 통해 계정을 생성해야 합니다. 귀하는 계정 자격 증명의 보안을 유지하고 계정에서 발생하는 모든 활동에 대해 책임을 집니다.",
+      },
+      {
+        heading: "4. 허용되는 사용",
+        body: "귀하는 서비스를 다음 목적으로 사용하지 않을 것에 동의합니다: (a) 불법적이거나 유해하거나 불쾌한 콘텐츠가 포함된 웹사이트 생성; (b) 제3자의 지적 재산권 침해; (c) 악성 소프트웨어 또는 피싱 콘텐츠 배포; (d) 서비스 또는 시스템에 대한 무단 접근 시도; (e) 정상적인 사용을 초과하여 자동화된 수단으로 서비스를 남용.",
+      },
+      {
+        heading: "5. 콘텐츠 소유권",
+        body: "귀하는 서비스를 사용하여 생성한 콘텐츠의 소유권을 보유합니다. 서비스를 통해 콘텐츠를 게시함으로써 귀하는 서비스 운영을 위해 콘텐츠를 호스팅하고 표시할 수 있는 비독점적이고 전 세계적인 라이선스를 당사에 부여합니다. 언제든지 콘텐츠를 내보내거나 삭제할 수 있습니다.",
+      },
+      {
+        heading: "6. AI 생성 콘텐츠",
+        body: "AI가 생성한 콘텐츠는 \"있는 그대로\" 제공됩니다. 품질을 위해 노력하지만 AI 생성 콘텐츠가 오류가 없거나 정확하거나 특정 목적에 적합하다고 보장하지 않습니다. 게시 전에 모든 AI 생성 콘텐츠를 검토하고 편집할 책임은 귀하에게 있습니다.",
+      },
+      {
+        heading: "7. 제3자 통합",
+        body: "서비스는 Cloudflare, Auth0, Stripe를 포함한 제3자 서비스와 통합됩니다. 이러한 통합의 사용은 해당 제3자 서비스 약관의 적용을 받습니다. 당사는 제3자 서비스의 가용성이나 성능에 대해 책임을 지지 않습니다. BYOK(자체 키 사용) 기능을 사용할 때 귀하는 자신의 API 키와 자격 증명을 관리할 책임이 있습니다.",
+      },
+      {
+        heading: "8. 결제 및 구독",
+        body: "유료 플랜은 Stripe를 통해 월별로 청구됩니다. 언제든지 구독을 취소할 수 있습니다. 환불은 개별 사례에 따라 처리됩니다. 플랜을 다운그레이드하면 상위 등급에서만 사용 가능한 기능에 대한 접근을 잃을 수 있습니다.",
+      },
+      {
+        heading: "9. 서비스 가용성",
+        body: "당사는 높은 가용성을 유지하기 위해 노력하지만 서비스에 대한 중단 없는 접근을 보장하지 않습니다. 당사는 합리적인 통지 후 서비스의 일부를 수정, 일시 중단 또는 중단할 권리를 보유합니다.",
+      },
+      {
+        heading: "10. 책임 제한",
+        body: "법이 허용하는 최대 범위 내에서 JY Tech LLC는 서비스 사용으로 인해 발생하는 간접적, 부수적, 특별, 결과적 또는 징벌적 손해에 대해 책임을 지지 않습니다. 당사의 총 책임은 청구 이전 12개월 동안 귀하가 당사에 지불한 금액을 초과하지 않습니다.",
+      },
+      {
+        heading: "11. 해지",
+        body: "귀하가 본 약관을 위반하는 경우 당사는 귀하의 계정을 해지하거나 정지할 수 있습니다. 해지 시 서비스를 사용할 권리는 즉시 종료됩니다. 해지 전에 콘텐츠를 내보낼 수 있습니다. 당사는 법률에 따라 특정 데이터를 보유할 수 있습니다.",
+      },
+      {
+        heading: "12. 약관 변경",
+        body: "당사는 수시로 본 약관을 업데이트할 수 있습니다. 중요한 변경 사항은 이메일 또는 서비스를 통해 통지합니다. 변경 후 서비스를 계속 사용하면 업데이트된 약관에 동의하는 것으로 간주됩니다.",
+      },
+      {
+        heading: "13. 준거법",
+        body: "본 약관은 법률 충돌 원칙에 관계없이 미국 캘리포니아주 법률의 적용을 받습니다.",
+      },
+      {
+        heading: "14. 연락처",
+        body: "본 약관에 관한 질문은 support@jytech.us로 문의해 주십시오.",
+      },
+    ],
+  },
 };
 
 export async function generateMetadata({

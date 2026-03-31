@@ -10,4 +10,6 @@ export type BlogArticle = {
   date: string;
   en: BlogArticleLocale;
   zh: BlogArticleLocale;
+  es: BlogArticleLocale;
+  ko: BlogArticleLocale;
 };

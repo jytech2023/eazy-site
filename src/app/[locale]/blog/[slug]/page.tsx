@@ -92,7 +92,7 @@ export default async function BlogArticlePage({
           href={`/${locale}/blog`}
           className="text-sm text-muted hover:text-accent transition"
         >
-          ← {locale === "zh" ? "返回博客" : "Back to Blog"}
+          ← {{ en: "Back to Blog", zh: "返回博客", es: "Volver al Blog", ko: "블로그로 돌아가기" }[loc]}
         </Link>
       </nav>
 

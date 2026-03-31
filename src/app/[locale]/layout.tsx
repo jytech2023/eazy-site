@@ -27,13 +27,15 @@ export async function generateMetadata({
       languages: {
         en: `${baseUrl}/en`,
         zh: `${baseUrl}/zh`,
+        es: `${baseUrl}/es`,
+        ko: `${baseUrl}/ko`,
       },
     },
     openGraph: {
       title: dict.meta.title,
       description: dict.meta.description,
       url: `${baseUrl}/${locale}`,
-      locale: locale === "zh" ? "zh_CN" : "en_US",
+      locale: { en: "en_US", zh: "zh_CN", es: "es_ES", ko: "ko_KR" }[locale] || "en_US",
     },
   };
 }
