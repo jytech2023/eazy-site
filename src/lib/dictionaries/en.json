@@ -120,7 +120,9 @@
   },
   "footer": {
     "copyright": "EasySite",
-    "tagline": "Build websites with AI"
+    "tagline": "Build websites with AI",
+    "terms": "Terms of Service",
+    "privacy": "Privacy Policy"
   },
   "common": {
     "loading": "Loading...",

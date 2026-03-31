@@ -38,6 +38,13 @@ export const sites = pgTable("sites", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+export const modelUsage = pgTable("model_usage", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").references(() => users.id),
+  model: text("model").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const chatMessages = pgTable("chat_messages", {
   id: serial("id").primaryKey(),
   siteId: integer("site_id")

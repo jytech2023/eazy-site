@@ -44,6 +44,7 @@ export async function POST(request: Request) {
 
   // Determine user's plan and validate model selection
   let plan: PlanKey = "free";
+  let dbUserId: number | null = null;
 
   if (process.env.DATABASE_URL) {
     try {
@@ -61,6 +62,7 @@ export async function POST(request: Request) {
           .limit(1);
         if (dbUser) {
           plan = (dbUser.plan || "free") as PlanKey;
+          dbUserId = dbUser.id;
         }
       }
     } catch {
@@ -73,6 +75,17 @@ export async function POST(request: Request) {
   let modelId = PLANS[plan]?.model || PLANS.free.model;
   if (requestedModel && available.some((m) => m.id === requestedModel)) {
     modelId = requestedModel;
+  }
+
+  // Log model usage (fire and forget)
+  if (process.env.DATABASE_URL) {
+    import("@/lib/db").then(({ db }) =>
+      import("@/lib/schema").then(({ modelUsage }) => {
+        db.insert(modelUsage)
+          .values({ model: modelId, userId: dbUserId })
+          .catch(() => {});
+      })
+    ).catch(() => {});
   }
 
   const messages: { role: "system" | "user" | "assistant"; content: string }[] =

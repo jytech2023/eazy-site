@@ -5,7 +5,7 @@ import { articles } from "@/content/blog";
 export default function sitemap(): MetadataRoute.Sitemap {
   const baseUrl = process.env.APP_BASE_URL || "http://localhost:3000";
 
-  const staticPages = ["", "/editor", "/pricing", "/blog"];
+  const staticPages = ["", "/editor", "/pricing", "/blog", "/terms", "/privacy"];
 
   const entries: MetadataRoute.Sitemap = [];
 
