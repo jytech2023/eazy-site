@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 
 type Site = {
-  id: number;
+  id: string;
   title: string;
   slug: string;
   published: boolean;
@@ -12,6 +12,7 @@ type Site = {
   createdAt: string;
   updatedAt: string;
   username?: string;
+  files?: string[];
 };
 
 type Dict = {
@@ -69,13 +70,13 @@ export default function DashboardClient({
       .finally(() => setLoadingSites(false));
   }, [user]);
 
-  const handleDelete = async (siteId: number) => {
+  const handleDelete = async (siteId: string) => {
     if (!confirm(dict.dashboard.confirmDelete)) return;
     await fetch(`/api/sites?id=${siteId}`, { method: "DELETE" });
     setSites((prev) => prev.filter((s) => s.id !== siteId));
   };
 
-  const handleUnpublish = async (siteId: number) => {
+  const handleUnpublish = async (siteId: string) => {
     await fetch(`/api/sites`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -183,10 +184,16 @@ export default function DashboardClient({
                 </div>
                 <p className="text-xs text-muted mt-1">
                   {new Date(site.updatedAt).toLocaleDateString()}
+                  {site.files && (
+                    <>
+                      {" · "}
+                      <span>{site.files.length} file{site.files.length > 1 ? "s" : ""}</span>
+                    </>
+                  )}
                   {site.published && site.username && (
                     <>
                       {" · "}
-                      <span className="text-accent">/sites/{site.username}/{site.slug}.html</span>
+                      <span className="text-accent">/sites/{site.username}/{site.slug}/</span>
                     </>
                   )}
                 </p>
@@ -195,7 +202,7 @@ export default function DashboardClient({
                 {site.published && (
                   <>
                     <a
-                      href={`/sites/${site.username || "anonymous"}/${site.slug}.html`}
+                      href={`/sites/${site.username || "anonymous"}/${site.slug}/index.html`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="text-sm px-3 py-1.5 rounded-md border border-card-border text-muted hover:text-foreground hover:border-accent transition"

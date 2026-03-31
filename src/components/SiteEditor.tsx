@@ -132,6 +132,7 @@ export default function SiteEditor({
   const [chatHistory, setChatHistory] = useState<{ role: string; content: string }[]>([]);
   const [streamingContent, setStreamingContent] = useState("");
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const chatContainerRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const fileNames = useMemo(() => Object.keys(files), [files]);
@@ -150,21 +151,29 @@ export default function SiteEditor({
   useEffect(() => {
     if (siteId) {
       fetch(`/api/sites?id=${siteId}`)
-        .then((r) => r.json())
+        .then((r) => {
+          if (!r.ok) throw new Error("Failed");
+          return r.json();
+        })
         .then((data) => {
-          if (data.site?.files) {
-            setFiles(JSON.parse(data.site.files));
+          if (data.site?.files && typeof data.site.files === "object" && !Array.isArray(data.site.files)) {
+            // New format: files is Record<string, string>
+            setFiles(data.site.files);
           } else if (data.site?.htmlContent) {
             setFiles({ "index.html": data.site.htmlContent });
           }
           if (data.site) setCurrentSiteId(data.site.id.toString());
-        });
+        })
+        .catch(() => {});
     }
   }, [siteId]);
 
-  // Auto-scroll chat
+  // Auto-scroll only within the chat container
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const container = chatContainerRef.current;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
   }, [chatHistory, streamingContent]);
 
   const handleGenerate = async () => {
@@ -290,7 +299,7 @@ export default function SiteEditor({
         </div>
 
         {/* Chat messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0 max-h-[30vh] lg:max-h-none">
+        <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0 max-h-[30vh] lg:max-h-none">
           {chatHistory.length === 0 && (
             <div className="text-center text-muted py-12">
               <svg className="mx-auto h-12 w-12 text-muted/50 mb-4" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor">
