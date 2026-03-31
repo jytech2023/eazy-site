@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import CloudflareSettings from "./CloudflareSettings";
+import GitHubSettings from "./GitHubSettings";
 
 type Dict = {
   profile: {
@@ -27,6 +28,15 @@ type Dict = {
     guide: string;
     step1: string;
     step2: string;
+  };
+  github: {
+    title: string;
+    description: string;
+    connect: string;
+    connected: string;
+    notConnected: string;
+    disconnect: string;
+    connectedAs: string;
   };
   nav: { login: string };
 };
@@ -122,7 +132,10 @@ export default function ProfileClient({
 
       {/* Integrations */}
       <h2 className="text-lg font-semibold mb-4">{dict.profile.integrations}</h2>
-      <CloudflareSettings dict={dict} />
+      <div className="space-y-4">
+        <CloudflareSettings dict={dict} />
+        <GitHubSettings dict={dict} />
+      </div>
     </div>
   );
 }

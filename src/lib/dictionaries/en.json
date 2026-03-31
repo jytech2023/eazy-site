@@ -101,6 +101,15 @@
     "plan": "Plan",
     "integrations": "Integrations"
   },
+  "github": {
+    "title": "GitHub",
+    "description": "Connect your GitHub account to import repositories as sites.",
+    "connect": "Connect GitHub",
+    "connected": "Connected",
+    "notConnected": "Not connected",
+    "disconnect": "Disconnect",
+    "connectedAs": "Connected as"
+  },
   "cloudflare": {
     "title": "Cloudflare Pages",
     "description": "Connect your Cloudflare account to deploy sites to Cloudflare Pages for faster global performance and free custom domains.",

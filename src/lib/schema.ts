@@ -20,6 +20,8 @@ export const users = pgTable("users", {
   preferredModel: text("preferred_model"),
   cfApiToken: text("cf_api_token"),
   cfAccountId: text("cf_account_id"),
+  githubToken: text("github_token"),
+  githubUsername: text("github_username"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

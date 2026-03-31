@@ -101,6 +101,15 @@
     "plan": "套餐",
     "integrations": "集成服务"
   },
+  "github": {
+    "title": "GitHub",
+    "description": "连接你的 GitHub 账户以导入仓库为网站。",
+    "connect": "连接 GitHub",
+    "connected": "已连接",
+    "notConnected": "未连接",
+    "disconnect": "断开连接",
+    "connectedAs": "已连接为"
+  },
   "cloudflare": {
     "title": "Cloudflare Pages",
     "description": "连接你的 Cloudflare 账户，将网站部署到 Cloudflare Pages，获得更快的全球访问速度和免费自定义域名。",

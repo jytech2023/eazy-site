@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import SiteCfProject from "./SiteCfProject";
+import GitHubImport from "./GitHubImport";
 
 type Site = {
   id: string;
@@ -143,12 +144,18 @@ export default function DashboardClient({
             {sites.length} {dict.dashboard.sitesUsed}
           </p>
         </div>
-        <Link
-          href={`/${locale}/editor`}
-          className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-dark transition"
-        >
-          + {dict.dashboard.createFirst.split(" ").slice(0, 2).join(" ")}
-        </Link>
+        <div className="flex items-center gap-2">
+          <GitHubImport
+            locale={locale}
+            onImported={() => window.location.reload()}
+          />
+          <Link
+            href={`/${locale}/editor`}
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-dark transition"
+          >
+            + {dict.dashboard.createFirst.split(" ").slice(0, 2).join(" ")}
+          </Link>
+        </div>
       </div>
 
       {loadingSites ? (
