@@ -81,6 +81,19 @@ export async function GET(
     return new Response("Not Found", { status: 404 });
   }
 
+  // Check if site owner has a paid plan
+  let isPaid = false;
+  if (site.userId) {
+    const [owner] = await db
+      .select({ plan: users.plan })
+      .from(users)
+      .where(eq(users.id, site.userId))
+      .limit(1);
+    if (owner && owner.plan !== "free") {
+      isPaid = true;
+    }
+  }
+
   // Build a self-contained HTML page by inlining CSS/JS assets
   let html: string;
   try {
@@ -91,10 +104,27 @@ export async function GET(
     html = site.htmlContent;
   }
 
+  // Inject promotional banner for free/anonymous sites
+  if (!isPaid) {
+    const baseUrl = process.env.APP_BASE_URL || "https://easysite.jytech.us";
+    const banner = `<div style="position:fixed;top:0;left:0;right:0;z-index:99999;background:linear-gradient(135deg,#6366f1,#8b5cf6);color:#fff;text-align:center;padding:6px 16px;font-family:-apple-system,system-ui,sans-serif;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,0.15);">
+  Built with <a href="${baseUrl}" style="color:#fff;font-weight:600;text-decoration:underline;" target="_blank" rel="noopener">EasySite</a> — Create yours free in seconds
+  <a href="${baseUrl}" style="background:#fff;color:#6366f1;padding:2px 10px;border-radius:4px;font-size:12px;font-weight:600;text-decoration:none;margin-left:8px;" target="_blank" rel="noopener">Try it</a>
+</div>
+<div style="height:32px;"></div>`;
+
+    if (html.includes("<body")) {
+      html = html.replace(/(<body[^>]*>)/i, `$1\n${banner}`);
+    } else {
+      html = banner + html;
+    }
+  }
+
   return new Response(html, {
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "public, max-age=60, s-maxage=300",
+      "Cross-Origin-Resource-Policy": "cross-origin",
     },
   });
 }

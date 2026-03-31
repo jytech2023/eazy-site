@@ -93,6 +93,7 @@ export async function GET(
     headers: {
       "Content-Type": contentType,
       "Cache-Control": "public, max-age=60, s-maxage=300",
+      "Cross-Origin-Resource-Policy": "cross-origin",
     },
   });
 }

@@ -95,7 +95,39 @@ Use labeled code blocks for each file:
 - Minimize inline styles; keep CSS in the stylesheet
 - Use efficient selectors; avoid deep nesting
 - Lazy-load images below the fold with \`loading="lazy"\`
-- Prefer CSS animations over JavaScript when possible`;
+- Prefer CSS animations over JavaScript when possible
+
+## React / Node.js Projects
+When the user asks for a React app, Next.js app, or any Node.js project:
+
+- Output a \`package.json\` file with the required dependencies
+- Use **Vite + React** as the default React setup (fast, lightweight)
+- Include files like: \`package.json\`, \`index.html\`, \`src/App.jsx\`, \`src/main.jsx\`, \`src/style.css\`, \`vite.config.js\`
+- The project will run in a WebContainer (in-browser Node.js) — it supports npm install and dev servers
+- Do NOT use TypeScript unless explicitly asked — keep it simple with JSX
+- Keep dependencies minimal — only what's needed
+- The dev server must bind to host 0.0.0.0 for WebContainer compatibility
+
+Example package.json for a Vite React project:
+\`\`\`json filename=package.json
+{
+  "name": "my-app",
+  "private": true,
+  "scripts": { "dev": "vite --host" },
+  "dependencies": { "react": "^19.0.0", "react-dom": "^19.0.0" },
+  "devDependencies": { "vite": "^6.0.0", "@vitejs/plugin-react": "^4.0.0" }
+}
+\`\`\`
+
+Example vite.config.js:
+\`\`\`js filename=vite.config.js
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+export default defineConfig({ plugins: [react()] });
+\`\`\`
+
+For non-React Node.js projects (Express, etc.), output the appropriate package.json and entry file.
+Default to static HTML/CSS/JS unless the user specifically asks for React, Node.js, or a framework.`;
 
 // --- System Prompt: Dynamic section (changes per-request context) ---
 function buildDynamicPrompt(isEditing: boolean, isContinuation: boolean): string {

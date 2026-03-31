@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, lazy, Suspense } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+
+const WebContainerPreview = lazy(() => import("./WebContainerPreview"));
 
 type Dict = {
   editor: {
@@ -301,23 +303,36 @@ export default function SiteEditor({
 
   // Load existing site if editing
   useEffect(() => {
-    if (siteId) {
-      fetch(`/api/sites?id=${siteId}`)
-        .then((r) => {
-          if (!r.ok) throw new Error("Failed");
-          return r.json();
-        })
-        .then((data) => {
-          if (data.site?.files && typeof data.site.files === "object" && !Array.isArray(data.site.files)) {
-            // New format: files is Record<string, string>
-            setFiles(data.site.files);
-          } else if (data.site?.htmlContent) {
-            setFiles({ "index.html": data.site.htmlContent });
-          }
-          if (data.site) setCurrentSiteId(data.site.id.toString());
-        })
-        .catch(() => {});
+    if (!siteId) return;
+
+    // Check sessionStorage for fork data first (avoids extra API call)
+    const forkKey = `fork-${siteId}`;
+    const forkData = sessionStorage.getItem(forkKey);
+    if (forkData) {
+      try {
+        const forkFiles = JSON.parse(forkData);
+        setFiles(forkFiles);
+        setCurrentSiteId(siteId);
+        sessionStorage.removeItem(forkKey);
+        return;
+      } catch {}
     }
+
+    // Otherwise fetch from API
+    fetch(`/api/sites?id=${siteId}`)
+      .then((r) => {
+        if (!r.ok) throw new Error("Failed");
+        return r.json();
+      })
+      .then((data) => {
+        if (data.site?.files && typeof data.site.files === "object" && !Array.isArray(data.site.files)) {
+          setFiles(data.site.files);
+        } else if (data.site?.htmlContent) {
+          setFiles({ "index.html": data.site.htmlContent });
+        }
+        if (data.site) setCurrentSiteId(data.site.id.toString());
+      })
+      .catch(() => {});
   }, [siteId]);
 
   // Auto-continue: when a generation ends with truncation, auto-send "continue"
@@ -841,7 +856,11 @@ export default function SiteEditor({
         {/* Content area */}
         <div className="flex-1 min-h-0">
           {activeTab === "preview" ? (
-            previewHtml ? (
+            files["package.json"] ? (
+              <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin h-6 w-6 border-2 border-accent border-t-transparent rounded-full" /></div>}>
+                <WebContainerPreview files={files} />
+              </Suspense>
+            ) : previewHtml ? (
               <iframe
                 ref={iframeRef}
                 srcDoc={previewHtml}

@@ -137,6 +137,10 @@ export default function GalleryClient({ locale }: { locale: Locale }) {
       });
       if (!res.ok) return;
       const data = await res.json();
+      // Store forked files in sessionStorage so editor can load them directly
+      if (data.files) {
+        sessionStorage.setItem(`fork-${data.siteId}`, JSON.stringify(data.files));
+      }
       window.location.href = `/${locale}/editor/${data.siteId}`;
     } finally {
       setForking(null);

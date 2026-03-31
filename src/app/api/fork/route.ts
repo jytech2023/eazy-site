@@ -22,18 +22,38 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Site not found" }, { status: 404 });
   }
 
-  // Get current user (optional — anonymous users can fork too)
+  // Get or create DB user
   let userId: number | null = null;
   let isAnonymous = true;
 
   try {
     const session = await auth0.getSession();
     if (session?.user?.sub) {
-      const [dbUser] = await db
+      let [dbUser] = await db
         .select()
         .from(users)
         .where(eq(users.auth0Id, session.user.sub))
         .limit(1);
+
+      if (!dbUser) {
+        // Auto-create user
+        const user = session.user;
+        const username =
+          (user.nickname as string) ||
+          (user.email as string)?.split("@")[0] ||
+          `user${Date.now()}`;
+        [dbUser] = await db
+          .insert(users)
+          .values({
+            auth0Id: user.sub as string,
+            email: (user.email as string) || null,
+            name: (user.name as string) || null,
+            username,
+            avatar: (user.picture as string) || null,
+          })
+          .returning();
+      }
+
       if (dbUser) {
         userId = dbUser.id;
         isAnonymous = false;
@@ -62,9 +82,18 @@ export async function POST(request: Request) {
     })
     .returning();
 
+  // Parse files to return directly (so editor doesn't need a second fetch)
+  let files: Record<string, string> = {};
+  try {
+    files = JSON.parse(source.htmlContent);
+  } catch {
+    files = { "index.html": source.htmlContent };
+  }
+
   return NextResponse.json({
     siteId: forked.id,
     slug: forked.slug,
     title: forked.title,
+    files,
   });
 }
