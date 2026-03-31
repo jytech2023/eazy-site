@@ -1,154 +1,118 @@
 import { NextResponse } from "next/server";
 import { auth0 } from "@/lib/auth0";
-import { readdir, readFile, rm, stat } from "fs/promises";
-import path from "path";
+import { db } from "@/lib/db";
+import { sites, users } from "@/lib/schema";
+import { eq, and, desc } from "drizzle-orm";
 
-// Get username from Auth0 session
-async function getUsername(): Promise<string | null> {
+async function getAuthUser() {
   try {
     const session = await auth0.getSession();
     if (!session?.user) return null;
-    return (
-      (session.user.nickname as string) ||
-      (session.user.email as string)?.split("@")[0] ||
-      null
-    );
+    return session.user;
   } catch {
     return null;
   }
 }
 
-// Scan filesystem to list sites for a user
-async function listSitesFromFS(username: string) {
-  const userDir = path.join(process.cwd(), "public", "sites", username);
-  try {
-    const entries = await readdir(userDir);
-    const sites = [];
-
-    for (const entry of entries) {
-      const entryPath = path.join(userDir, entry);
-      const entryStat = await stat(entryPath);
-
-      if (entryStat.isDirectory()) {
-        // Multi-file site (new format): public/sites/{username}/{slug}/
-        const slugDir = path.join(userDir, entry);
-        const dirFiles = await readdir(slugDir);
-        let title = "Untitled";
-
-        // Try to extract <title> from index.html
-        if (dirFiles.includes("index.html")) {
-          const html = await readFile(
-            path.join(slugDir, "index.html"),
-            "utf-8"
-          );
-          const titleMatch = html.match(/<title>(.*?)<\/title>/i);
-          if (titleMatch) title = titleMatch[1];
-        }
-
-        sites.push({
-          id: entry,
-          slug: entry,
-          title,
-          published: true,
-          isAnonymous: username === "anonymous",
-          username,
-          files: dirFiles,
-          createdAt: entryStat.birthtime.toISOString(),
-          updatedAt: entryStat.mtime.toISOString(),
-        });
-      } else if (entry.endsWith(".html")) {
-        // Legacy single-file site: public/sites/{username}/{slug}.html
-        const slug = entry.replace(/\.html$/, "");
-        const html = await readFile(entryPath, "utf-8");
-        const titleMatch = html.match(/<title>(.*?)<\/title>/i);
-
-        sites.push({
-          id: slug,
-          slug,
-          title: titleMatch ? titleMatch[1] : "Untitled",
-          published: true,
-          isAnonymous: username === "anonymous",
-          username,
-          files: [entry],
-          createdAt: entryStat.birthtime.toISOString(),
-          updatedAt: entryStat.mtime.toISOString(),
-        });
-      }
-    }
-
-    // Sort by updatedAt descending
-    sites.sort(
-      (a, b) =>
-        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-    );
-    return sites;
-  } catch {
-    return [];
-  }
+async function getDbUser(authUser: { sub?: string }) {
+  if (!authUser.sub) return null;
+  const [dbUser] = await db
+    .select()
+    .from(users)
+    .where(eq(users.auth0Id, authUser.sub))
+    .limit(1);
+  return dbUser ?? null;
 }
 
-// GET: List user's sites
+// GET: List user's sites or get a specific site
 export async function GET(request: Request) {
-  const username = await getUsername();
-  if (!username) {
+  const authUser = await getAuthUser();
+  if (!authUser) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const dbUser = await getDbUser(authUser);
   const url = new URL(request.url);
   const siteId = url.searchParams.get("id");
 
-  const sites = await listSitesFromFS(username);
+  // Get user's sites from DB
+  const userSites = dbUser
+    ? await db
+        .select()
+        .from(sites)
+        .where(eq(sites.userId, dbUser.id))
+        .orderBy(desc(sites.updatedAt))
+    : [];
 
   if (siteId) {
-    const site = sites.find((s) => s.id === siteId || s.slug === siteId);
-    if (site) {
-      // Load full file contents for editing
-      const siteDir = path.join(
-        process.cwd(),
-        "public",
-        "sites",
-        username,
-        site.slug
-      );
-      const files: Record<string, string> = {};
-      try {
-        const dirStat = await stat(siteDir);
-        if (dirStat.isDirectory()) {
-          const dirFiles = await readdir(siteDir);
-          for (const f of dirFiles) {
-            files[f] = await readFile(path.join(siteDir, f), "utf-8");
-          }
-        }
-      } catch {
-        // Legacy single file
-        try {
-          const html = await readFile(
-            path.join(
-              process.cwd(),
-              "public",
-              "sites",
-              username,
-              `${site.slug}.html`
-            ),
-            "utf-8"
-          );
-          files["index.html"] = html;
-        } catch {
-          // not found
-        }
-      }
-      return NextResponse.json({ site: { ...site, files } });
+    const site = userSites.find(
+      (s) => String(s.id) === siteId || s.slug === siteId
+    );
+    if (!site) {
+      return NextResponse.json({ site: null });
     }
-    return NextResponse.json({ site: null });
+
+    // Parse files from JSON content
+    let files: Record<string, string> = {};
+    try {
+      files = JSON.parse(site.htmlContent);
+    } catch {
+      if (site.htmlContent) {
+        files = { "index.html": site.htmlContent };
+      }
+    }
+
+    return NextResponse.json({
+      site: {
+        id: String(site.id),
+        slug: site.slug,
+        title: site.title,
+        published: site.published,
+        isAnonymous: site.isAnonymous,
+        username: dbUser?.username || "anonymous",
+        files,
+        createdAt: site.createdAt.toISOString(),
+        updatedAt: site.updatedAt.toISOString(),
+      },
+    });
   }
 
-  return NextResponse.json({ sites, plan: "free" });
+  const formatted = userSites.map((s) => {
+    let fileNames: string[] = [];
+    try {
+      fileNames = Object.keys(JSON.parse(s.htmlContent));
+    } catch {
+      fileNames = ["index.html"];
+    }
+    return {
+      id: String(s.id),
+      slug: s.slug,
+      title: s.title,
+      published: s.published,
+      isAnonymous: s.isAnonymous,
+      username: dbUser?.username || "anonymous",
+      files: fileNames,
+      cfPagesProject: s.cfPagesProject || null,
+      createdAt: s.createdAt.toISOString(),
+      updatedAt: s.updatedAt.toISOString(),
+    };
+  });
+
+  return NextResponse.json({
+    sites: formatted,
+    plan: dbUser?.plan || "free",
+  });
 }
 
 // DELETE: Delete a site
 export async function DELETE(request: Request) {
-  const username = await getUsername();
-  if (!username) {
+  const authUser = await getAuthUser();
+  if (!authUser) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const dbUser = await getDbUser(authUser);
+  if (!dbUser) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -158,69 +122,33 @@ export async function DELETE(request: Request) {
     return NextResponse.json({ error: "Missing id" }, { status: 400 });
   }
 
-  // Try removing directory first (multi-file), then single file (legacy)
-  try {
-    const dirPath = path.join(
-      process.cwd(),
-      "public",
-      "sites",
-      username,
-      siteId
-    );
-    await rm(dirPath, { recursive: true });
-  } catch {
-    try {
-      const filePath = path.join(
-        process.cwd(),
-        "public",
-        "sites",
-        username,
-        `${siteId}.html`
-      );
-      await rm(filePath);
-    } catch {
-      // not found
-    }
-  }
+  await db
+    .delete(sites)
+    .where(and(eq(sites.id, Number(siteId)), eq(sites.userId, dbUser.id)));
 
   return NextResponse.json({ ok: true });
 }
 
-// PATCH: Update a site (e.g. unpublish = delete files)
+// PATCH: Update a site (e.g. unpublish)
 export async function PATCH(request: Request) {
-  const username = await getUsername();
-  if (!username) {
+  const authUser = await getAuthUser();
+  if (!authUser) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const dbUser = await getDbUser(authUser);
+  if (!dbUser) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const body = await request.json();
   const { id, published } = body;
 
-  // Unpublish = remove from filesystem
-  if (published === false && id) {
-    try {
-      const dirPath = path.join(
-        process.cwd(),
-        "public",
-        "sites",
-        username,
-        id
-      );
-      await rm(dirPath, { recursive: true });
-    } catch {
-      try {
-        const filePath = path.join(
-          process.cwd(),
-          "public",
-          "sites",
-          username,
-          `${id}.html`
-        );
-        await rm(filePath);
-      } catch {
-        // not found
-      }
-    }
+  if (id && published === false) {
+    await db
+      .update(sites)
+      .set({ published: false, updatedAt: new Date() })
+      .where(and(eq(sites.id, Number(id)), eq(sites.userId, dbUser.id)));
   }
 
   return NextResponse.json({ ok: true });

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import LanguageSwitcher from "./LanguageSwitcher";
+import ThemeToggle from "./ThemeToggle";
 
 type Dict = {
   nav: {
@@ -11,6 +12,7 @@ type Dict = {
     pricing: string;
     editor: string;
     blog: string;
+    profile: string;
     login: string;
     logout: string;
   };
@@ -60,12 +62,20 @@ export default function Navbar({
               {dict.nav.editor}
             </Link>
             {user && (
-              <Link
-                href={`/${locale}/dashboard`}
-                className="text-sm text-muted hover:text-foreground transition"
-              >
-                {dict.nav.dashboard}
-              </Link>
+              <>
+                <Link
+                  href={`/${locale}/dashboard`}
+                  className="text-sm text-muted hover:text-foreground transition"
+                >
+                  {dict.nav.dashboard}
+                </Link>
+                <Link
+                  href={`/${locale}/profile`}
+                  className="text-sm text-muted hover:text-foreground transition"
+                >
+                  {dict.nav.profile}
+                </Link>
+              </>
             )}
             <Link
               href={`/${locale}/pricing`}
@@ -80,15 +90,26 @@ export default function Navbar({
               {dict.nav.blog}
             </Link>
             <LanguageSwitcher locale={locale} />
+            <ThemeToggle />
             {user ? (
               <div className="flex items-center gap-3">
-                {user.picture && (
-                  <img
-                    src={user.picture}
-                    alt=""
-                    className="h-8 w-8 rounded-full"
-                  />
-                )}
+                <Link
+                  href={`/${locale}/profile`}
+                  className="flex items-center gap-2 hover:opacity-80 transition"
+                >
+                  {user.picture ? (
+                    <img
+                      src={user.picture}
+                      alt=""
+                      referrerPolicy={"no-referrer"}
+                      className="h-8 w-8 rounded-full"
+                    />
+                  ) : (
+                    <div className="h-8 w-8 rounded-full bg-accent/20 flex items-center justify-center text-sm font-medium text-accent">
+                      {(user.name?.[0] || user.email?.[0] || "U").toUpperCase()}
+                    </div>
+                  )}
+                </Link>
                 <a
                   href="/auth/logout"
                   className="text-sm text-muted hover:text-foreground transition"
@@ -155,13 +176,22 @@ export default function Navbar({
             {dict.nav.editor}
           </Link>
           {user && (
-            <Link
-              href={`/${locale}/dashboard`}
-              className="block text-sm text-muted hover:text-foreground"
-              onClick={() => setMenuOpen(false)}
-            >
-              {dict.nav.dashboard}
-            </Link>
+            <>
+              <Link
+                href={`/${locale}/dashboard`}
+                className="block text-sm text-muted hover:text-foreground"
+                onClick={() => setMenuOpen(false)}
+              >
+                {dict.nav.dashboard}
+              </Link>
+              <Link
+                href={`/${locale}/profile`}
+                className="block text-sm text-muted hover:text-foreground"
+                onClick={() => setMenuOpen(false)}
+              >
+                {dict.nav.profile}
+              </Link>
+            </>
           )}
           <Link
             href={`/${locale}/pricing`}
@@ -177,7 +207,10 @@ export default function Navbar({
           >
             {dict.nav.blog}
           </Link>
-          <LanguageSwitcher locale={locale} />
+          <div className="flex items-center gap-2">
+            <LanguageSwitcher locale={locale} />
+            <ThemeToggle />
+          </div>
           {user ? (
             <a
               href="/auth/logout"

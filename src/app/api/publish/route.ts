@@ -1,6 +1,4 @@
 import { NextResponse } from "next/server";
-import { writeFile, mkdir } from "fs/promises";
-import path from "path";
 
 function generateSlug(): string {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -11,37 +9,12 @@ function generateSlug(): string {
   return slug;
 }
 
-async function writeSiteFiles(
-  username: string,
-  slug: string,
-  files: Record<string, string>
-): Promise<string> {
-  const dir = path.join(process.cwd(), "public", "sites", username, slug);
-  await mkdir(dir, { recursive: true });
-
-  for (const [filename, content] of Object.entries(files)) {
-    // Sanitize filename to prevent path traversal
-    const safeName = path.basename(filename);
-    const filePath = path.join(dir, safeName);
-    await writeFile(filePath, content, "utf-8");
-  }
-
-  return `/sites/${username}/${slug}/index.html`;
-}
-
-// Try to get the logged-in username, returns null for anonymous
-async function getUsername(): Promise<string | null> {
+async function getAuthUser() {
   try {
     const { auth0 } = await import("@/lib/auth0");
     const session = await auth0.getSession();
     if (!session?.user) return null;
-
-    const username =
-      (session.user.nickname as string) ||
-      (session.user.email as string)?.split("@")[0] ||
-      `user${Date.now()}`;
-
-    return username;
+    return session.user;
   } catch {
     return null;
   }
@@ -49,9 +22,8 @@ async function getUsername(): Promise<string | null> {
 
 export async function POST(request: Request) {
   const body = await request.json();
-  const { files, html, title } = body;
+  const { files, html, title, siteId } = body;
 
-  // Support both multi-file and legacy single-html
   const siteFiles: Record<string, string> =
     files && Object.keys(files).length > 0
       ? files
@@ -63,31 +35,144 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "No content" }, { status: 400 });
   }
 
-  const slug = generateSlug();
-  const username = (await getUsername()) || "anonymous";
+  if (!process.env.DATABASE_URL) {
+    return NextResponse.json(
+      { error: "Database not configured" },
+      { status: 500 }
+    );
+  }
 
-  // Write all static files
-  const url = await writeSiteFiles(username, slug, siteFiles);
+  const authUser = await getAuthUser();
 
-  // Optionally persist to DB if configured
-  if (process.env.DATABASE_URL) {
-    try {
-      const { db } = await import("@/lib/db");
-      const { sites } = await import("@/lib/schema");
+  const { db } = await import("@/lib/db");
+  const { sites, users } = await import("@/lib/schema");
+  const { eq, and } = await import("drizzle-orm");
 
-      await db.insert(sites).values({
-        title: title || "Untitled",
-        slug,
-        htmlContent: JSON.stringify(siteFiles),
-        published: true,
-        isAnonymous: username === "anonymous",
-        userId: null,
-        sessionId: null,
-      });
-    } catch {
-      // DB not available, static files still work
+  // Look up DB user
+  let dbUser = null;
+  let username = "anonymous";
+
+  if (authUser?.sub) {
+    [dbUser] = await db
+      .select()
+      .from(users)
+      .where(eq(users.auth0Id, authUser.sub))
+      .limit(1);
+
+    if (dbUser) {
+      username =
+        dbUser.username ||
+        (authUser.nickname as string) ||
+        (authUser.email as string)?.split("@")[0] ||
+        "anonymous";
     }
   }
 
-  return NextResponse.json({ url });
+  let savedSiteId: number;
+  let slug: string;
+
+  try {
+    // Update existing site if siteId provided
+    if (siteId) {
+      const numericId = Number(siteId);
+      const conditions = dbUser
+        ? and(eq(sites.id, numericId), eq(sites.userId, dbUser.id))
+        : eq(sites.id, numericId);
+
+      const [existing] = await db
+        .select()
+        .from(sites)
+        .where(conditions)
+        .limit(1);
+
+      if (existing) {
+        await db
+          .update(sites)
+          .set({
+            title: title || existing.title,
+            htmlContent: JSON.stringify(siteFiles),
+            published: true,
+            updatedAt: new Date(),
+          })
+          .where(eq(sites.id, existing.id));
+
+        savedSiteId = existing.id;
+        slug = existing.slug;
+      } else {
+        // Site not found or not owned — create new
+        slug = generateSlug();
+        const [inserted] = await db
+          .insert(sites)
+          .values({
+            title: title || "Untitled",
+            slug,
+            htmlContent: JSON.stringify(siteFiles),
+            published: true,
+            isAnonymous: username === "anonymous",
+            userId: dbUser?.id ?? null,
+            sessionId: null,
+          })
+          .returning();
+        savedSiteId = inserted.id;
+      }
+    } else {
+      // New site
+      slug = generateSlug();
+      const [inserted] = await db
+        .insert(sites)
+        .values({
+          title: title || "Untitled",
+          slug,
+          htmlContent: JSON.stringify(siteFiles),
+          published: true,
+          isAnonymous: username === "anonymous",
+          userId: dbUser?.id ?? null,
+          sessionId: null,
+        })
+        .returning();
+      savedSiteId = inserted.id;
+    }
+  } catch (err) {
+    console.error("Failed to publish site:", err);
+    return NextResponse.json(
+      { error: "Failed to publish" },
+      { status: 500 }
+    );
+  }
+
+  const siteUrl = `/s/${username}/${slug}`;
+
+  // Deploy to Cloudflare Pages if site has a project and user has credentials
+  let cfDeployUrl: string | null = null;
+  if (dbUser?.cfApiToken && dbUser?.cfAccountId) {
+    // Get the site's CF project
+    const [savedSite] = await db
+      .select()
+      .from(sites)
+      .where(eq(sites.id, savedSiteId))
+      .limit(1);
+
+    if (savedSite?.cfPagesProject) {
+      try {
+        const { deployToCloudflarePages } = await import(
+          "@/lib/cloudflare-pages"
+        );
+        const deployment = await deployToCloudflarePages({
+          apiToken: dbUser.cfApiToken,
+          accountId: dbUser.cfAccountId,
+          projectName: savedSite.cfPagesProject,
+          files: siteFiles,
+        });
+        cfDeployUrl = deployment.url;
+      } catch (err) {
+        console.error("Cloudflare Pages deployment failed:", err);
+      }
+    }
+  }
+
+  return NextResponse.json({
+    url: siteUrl,
+    siteId: savedSiteId,
+    cfUrl: cfDeployUrl,
+  });
 }

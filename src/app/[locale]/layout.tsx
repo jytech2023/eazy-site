@@ -51,7 +51,11 @@ export default async function LocaleLayout({
   const dict = await getDictionary(locale);
   const session = await auth0.getSession();
   const user = session?.user
-    ? { name: session.user.name, picture: session.user.picture, email: session.user.email }
+    ? {
+        name: session.user.name as string | undefined,
+        picture: session.user.picture as string | undefined,
+        email: session.user.email as string | undefined,
+      }
     : null;
 
   return (

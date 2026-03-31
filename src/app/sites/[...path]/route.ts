@@ -1,5 +1,6 @@
-import { readFile } from "fs/promises";
-import path from "path";
+import { db } from "@/lib/db";
+import { sites, users } from "@/lib/schema";
+import { eq, and } from "drizzle-orm";
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -7,11 +8,12 @@ const MIME_TYPES: Record<string, string> = {
   ".js": "application/javascript; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".gif": "image/gif",
-  ".ico": "image/x-icon",
 };
+
+function getExtension(filename: string): string {
+  const dot = filename.lastIndexOf(".");
+  return dot >= 0 ? filename.slice(dot) : "";
+}
 
 export async function GET(
   _request: Request,
@@ -19,8 +21,7 @@ export async function GET(
 ) {
   const { path: segments } = await params;
 
-  // Expect: /sites/{username}/{slug}/{filename}
-  // or:     /sites/{username}/{slug}  (serve index.html)
+  // Expect: /sites/{username}/{slug}/{filename?}
   if (segments.length < 2) {
     return new Response("Not Found", { status: 404 });
   }
@@ -29,52 +30,69 @@ export async function GET(
   const slug = segments[1];
   const filename = segments[2] || "index.html";
 
-  // Sanitize to prevent path traversal
-  const safeName = path.basename(filename);
-  const ext = path.extname(safeName);
+  // Look up site from database
+  let site;
 
-  const filePath = path.join(
-    process.cwd(),
-    "public",
-    "sites",
-    username,
-    slug,
-    safeName
-  );
+  if (username === "anonymous") {
+    [site] = await db
+      .select()
+      .from(sites)
+      .where(
+        and(eq(sites.slug, slug), eq(sites.isAnonymous, true), eq(sites.published, true))
+      )
+      .limit(1);
+  } else {
+    const [dbUser] = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, username))
+      .limit(1);
 
-  try {
-    const content = await readFile(filePath);
-    const contentType = MIME_TYPES[ext] || "application/octet-stream";
-
-    return new Response(content, {
-      headers: {
-        "Content-Type": contentType,
-        "Cache-Control": "public, max-age=60, s-maxage=300",
-      },
-    });
-  } catch {
-    // Also try legacy flat file format: public/sites/{username}/{slug}.html
-    if (!segments[2]) {
-      try {
-        const legacyPath = path.join(
-          process.cwd(),
-          "public",
-          "sites",
-          username,
-          `${slug}.html`
-        );
-        const content = await readFile(legacyPath, "utf-8");
-        return new Response(content, {
-          headers: {
-            "Content-Type": "text/html; charset=utf-8",
-            "Cache-Control": "public, max-age=60, s-maxage=300",
-          },
-        });
-      } catch {
-        // fall through
-      }
+    if (!dbUser) {
+      return new Response("Not Found", { status: 404 });
     }
 
+    [site] = await db
+      .select()
+      .from(sites)
+      .where(
+        and(
+          eq(sites.slug, slug),
+          eq(sites.userId, dbUser.id),
+          eq(sites.published, true)
+        )
+      )
+      .limit(1);
+  }
+
+  if (!site) {
     return new Response("Not Found", { status: 404 });
   }
+
+  // Parse stored files
+  let fileContent: string | undefined;
+
+  try {
+    const filesMap = JSON.parse(site.htmlContent) as Record<string, string>;
+    fileContent = filesMap[filename];
+  } catch {
+    // Legacy format: htmlContent is raw HTML
+    if (filename === "index.html") {
+      fileContent = site.htmlContent;
+    }
+  }
+
+  if (fileContent === undefined) {
+    return new Response("Not Found", { status: 404 });
+  }
+
+  const ext = getExtension(filename);
+  const contentType = MIME_TYPES[ext] || "text/html; charset=utf-8";
+
+  return new Response(fileContent, {
+    headers: {
+      "Content-Type": contentType,
+      "Cache-Control": "public, max-age=60, s-maxage=300",
+    },
+  });
 }

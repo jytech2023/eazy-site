@@ -18,6 +18,8 @@ export const users = pgTable("users", {
   planExpiresAt: timestamp("plan_expires_at"),
   stripeCustomerId: text("stripe_customer_id"),
   preferredModel: text("preferred_model"),
+  cfApiToken: text("cf_api_token"),
+  cfAccountId: text("cf_account_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -31,6 +33,7 @@ export const sites = pgTable("sites", {
   htmlContent: text("html_content").notNull().default(""),
   published: boolean("published").default(false).notNull(),
   isAnonymous: boolean("is_anonymous").default(false).notNull(),
+  cfPagesProject: text("cf_pages_project"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

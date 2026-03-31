@@ -11,14 +11,12 @@ export async function GET(
   let site;
 
   if (username === "anonymous") {
-    // Anonymous site lookup
     [site] = await db
       .select()
       .from(sites)
       .where(and(eq(sites.slug, slug), eq(sites.isAnonymous, true), eq(sites.published, true)))
       .limit(1);
   } else {
-    // User site lookup
     const [dbUser] = await db
       .select()
       .from(users)
@@ -46,7 +44,16 @@ export async function GET(
     return new Response("Not Found", { status: 404 });
   }
 
-  return new Response(site.htmlContent, {
+  // Extract index.html from multi-file JSON, or use raw content for legacy
+  let html: string;
+  try {
+    const filesMap = JSON.parse(site.htmlContent) as Record<string, string>;
+    html = filesMap["index.html"] || site.htmlContent;
+  } catch {
+    html = site.htmlContent;
+  }
+
+  return new Response(html, {
     headers: {
       "Content-Type": "text/html; charset=utf-8",
       "Cache-Control": "public, max-age=60, s-maxage=300",

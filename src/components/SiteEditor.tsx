@@ -496,6 +496,19 @@ export default function SiteEditor({
               </a>
             )}
             <button
+              onClick={async () => {
+                const { exportSiteAsZip } = await import("@/lib/export-site");
+                await exportSiteAsZip(files, "my-site");
+              }}
+              disabled={!hasFiles}
+              className="rounded-lg border border-card-border px-3 py-1.5 text-sm font-medium text-muted hover:text-foreground hover:border-accent transition disabled:opacity-50"
+              title="Export as ZIP"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+            </button>
+            <button
               onClick={handlePublish}
               disabled={!hasFiles || publishing}
               className={`rounded-lg px-4 py-1.5 text-sm font-medium text-white transition disabled:opacity-50 ${

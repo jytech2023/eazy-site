@@ -9,6 +9,7 @@
     "pricing": "定价",
     "editor": "创建网站",
     "blog": "博客",
+    "profile": "设置",
     "login": "登录",
     "logout": "退出"
   },
@@ -31,7 +32,15 @@
     "step2": "AI 生成网站",
     "step2Desc": "AI 在几秒内生成精美的响应式网站。",
     "step3": "发布和分享",
-    "step3Desc": "一键发布你的网站，将链接分享给全世界。"
+    "step3Desc": "一键发布你的网站，将链接分享给全世界。",
+    "announcement": "我们热爱 Cloudflare！EasySite 现已集成 Cloudflare Pages，享受极速全球分发。",
+    "cfTitle": "由 Cloudflare 驱动",
+    "cfDesc": "将 AI 生成的网站部署到 Cloudflare 全球边缘网络。一键获得极速加载、免费 SSL 和自定义域名。",
+    "cfFeature1": "全球 300+ 边缘节点",
+    "cfFeature2": "免费 SSL 证书",
+    "cfFeature3": "自定义域名支持",
+    "cfFeature4": "无限带宽",
+    "cfCta": "连接 Cloudflare"
   },
   "editor": {
     "title": "AI 建站工具",
@@ -59,7 +68,8 @@
     "unpublish": "取消发布",
     "confirmDelete": "确定要删除这个网站吗？",
     "plan": "套餐",
-    "sitesUsed": "个网站已使用"
+    "sitesUsed": "个网站已使用",
+    "export": "导出"
   },
   "pricing": {
     "title": "简单定价",
@@ -78,9 +88,35 @@
       "freeModel": "标准 AI 模型",
       "proModel": "高级 AI 模型",
       "unlimitedModel": "顶级 AI 模型",
-      "customDomain": "自定义域名（即将推出）",
+      "cloudflare": "Cloudflare Pages 部署",
+      "customDomain": "通过 Cloudflare 自定义域名",
+      "export": "导出为 ZIP",
       "priority": "优先支持"
     }
+  },
+  "profile": {
+    "title": "个人设置",
+    "account": "账户信息",
+    "email": "邮箱",
+    "plan": "套餐",
+    "integrations": "集成服务"
+  },
+  "cloudflare": {
+    "title": "Cloudflare Pages",
+    "description": "连接你的 Cloudflare 账户，将网站部署到 Cloudflare Pages，获得更快的全球访问速度和免费自定义域名。",
+    "apiToken": "API Token",
+    "apiTokenHint": "在 dash.cloudflare.com/profile/api-tokens 创建具有 Cloudflare Pages 编辑权限的令牌。",
+    "pagesProject": "Pages 项目名称",
+    "pagesProjectHint": "先在 Cloudflare 控制面板中创建一个 Pages 项目。",
+    "save": "保存并验证",
+    "saving": "验证中...",
+    "disconnect": "断开连接",
+    "connected": "已连接",
+    "notConnected": "未连接",
+    "testSuccess": "Cloudflare 验证成功！你的网站将同时部署到 Cloudflare Pages。",
+    "guide": "快速设置指南",
+    "step1": "打开 Cloudflare 控制面板，创建 Pages 项目（Workers & Pages → 创建 → Pages → 直接上传）。",
+    "step2": "在 个人资料 → API 令牌 → 创建令牌 → 自定义令牌，添加 Account「Cloudflare Pages: 编辑」和「Account Settings: 读取」权限。"
   },
   "footer": {
     "copyright": "EasySite",

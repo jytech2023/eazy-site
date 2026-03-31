@@ -9,6 +9,7 @@
     "pricing": "Pricing",
     "editor": "Create Site",
     "blog": "Blog",
+    "profile": "Profile",
     "login": "Log In",
     "logout": "Log Out"
   },
@@ -31,7 +32,15 @@
     "step2": "AI Builds It",
     "step2Desc": "Our AI generates a beautiful, responsive website in seconds.",
     "step3": "Publish & Share",
-    "step3Desc": "Publish your site with one click and share the URL with the world."
+    "step3Desc": "Publish your site with one click and share the URL with the world.",
+    "announcement": "We love Cloudflare! EasySite now integrates with Cloudflare Pages for blazing-fast global delivery.",
+    "cfTitle": "Powered by Cloudflare",
+    "cfDesc": "Deploy your AI-generated sites to Cloudflare's global edge network. Get lightning-fast load times, free SSL, and custom domains — all with one click.",
+    "cfFeature1": "300+ edge locations worldwide",
+    "cfFeature2": "Free SSL certificates",
+    "cfFeature3": "Custom domain support",
+    "cfFeature4": "Unlimited bandwidth",
+    "cfCta": "Connect Cloudflare"
   },
   "editor": {
     "title": "AI Site Builder",
@@ -59,7 +68,8 @@
     "unpublish": "Unpublish",
     "confirmDelete": "Are you sure you want to delete this site?",
     "plan": "Plan",
-    "sitesUsed": "sites used"
+    "sitesUsed": "sites used",
+    "export": "Export"
   },
   "pricing": {
     "title": "Simple Pricing",
@@ -78,9 +88,35 @@
       "freeModel": "Standard AI model",
       "proModel": "Advanced AI model",
       "unlimitedModel": "Premium AI model",
-      "customDomain": "Custom domain (coming soon)",
+      "cloudflare": "Cloudflare Pages deploy",
+      "customDomain": "Custom domain via Cloudflare",
+      "export": "Export as ZIP",
       "priority": "Priority support"
     }
+  },
+  "profile": {
+    "title": "Profile",
+    "account": "Account",
+    "email": "Email",
+    "plan": "Plan",
+    "integrations": "Integrations"
+  },
+  "cloudflare": {
+    "title": "Cloudflare Pages",
+    "description": "Connect your Cloudflare account to deploy sites to Cloudflare Pages for faster global performance and free custom domains.",
+    "apiToken": "API Token",
+    "apiTokenHint": "Create a token at dash.cloudflare.com/profile/api-tokens with \"Cloudflare Pages: Edit\" permission.",
+    "pagesProject": "Pages Project Name",
+    "pagesProjectHint": "Create a Pages project first in your Cloudflare dashboard.",
+    "save": "Save & Verify",
+    "saving": "Verifying...",
+    "disconnect": "Disconnect",
+    "connected": "Connected",
+    "notConnected": "Not connected",
+    "testSuccess": "Cloudflare verified! Your sites will now be deployed to Cloudflare Pages.",
+    "guide": "Quick Setup Guide",
+    "step1": "Go to Cloudflare dashboard and create a Pages project (Workers & Pages → Create → Pages → Direct Upload).",
+    "step2": "Create an API token at Profile → API Tokens → Create Token → Custom Token, with Account \"Cloudflare Pages: Edit\" and \"Account Settings: Read\" permissions."
   },
   "footer": {
     "copyright": "EasySite",

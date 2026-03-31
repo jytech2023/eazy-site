@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import SiteCfProject from "./SiteCfProject";
 
 type Site = {
   id: string;
@@ -13,6 +14,7 @@ type Site = {
   updatedAt: string;
   username?: string;
   files?: string[];
+  cfPagesProject?: string | null;
 };
 
 type Dict = {
@@ -29,6 +31,7 @@ type Dict = {
     confirmDelete: string;
     plan: string;
     sitesUsed: string;
+    export: string;
   };
   nav: { login: string };
 };
@@ -45,6 +48,7 @@ export default function DashboardClient({
   const [sites, setSites] = useState<Site[]>([]);
   const [loadingSites, setLoadingSites] = useState(true);
   const [userPlan, setUserPlan] = useState("free");
+  const [cfConnected, setCfConnected] = useState(false);
 
   useEffect(() => {
     fetch("/auth/profile")
@@ -57,14 +61,18 @@ export default function DashboardClient({
   useEffect(() => {
     if (!user) return;
     setLoadingSites(true);
-    fetch("/api/sites")
-      .then((r) => {
-        if (!r.ok) throw new Error("Failed");
-        return r.json();
-      })
-      .then((data) => {
-        setSites(data.sites || []);
-        setUserPlan(data.plan || "free");
+    Promise.all([
+      fetch("/api/sites").then((r) => (r.ok ? r.json() : null)),
+      fetch("/api/cloudflare").then((r) => (r.ok ? r.json() : null)),
+    ])
+      .then(([sitesData, cfData]) => {
+        if (sitesData) {
+          setSites(sitesData.sites || []);
+          setUserPlan(sitesData.plan || "free");
+        }
+        if (cfData) {
+          setCfConnected(cfData.configured || false);
+        }
       })
       .catch(() => {})
       .finally(() => setLoadingSites(false));
@@ -74,6 +82,21 @@ export default function DashboardClient({
     if (!confirm(dict.dashboard.confirmDelete)) return;
     await fetch(`/api/sites?id=${siteId}`, { method: "DELETE" });
     setSites((prev) => prev.filter((s) => s.id !== siteId));
+  };
+
+  const handleExport = async (site: Site) => {
+    try {
+      // Fetch site files from DB
+      const res = await fetch(`/api/sites?id=${site.id}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const files: Record<string, string> = data.site?.files || {};
+      if (Object.keys(files).length === 0) return;
+      const { exportSiteAsZip } = await import("@/lib/export-site");
+      await exportSiteAsZip(files, site.title || site.slug);
+    } catch {
+      // ignore
+    }
   };
 
   const handleUnpublish = async (siteId: string) => {
@@ -197,6 +220,18 @@ export default function DashboardClient({
                     </>
                   )}
                 </p>
+                <SiteCfProject
+                  siteId={site.id}
+                  currentProject={site.cfPagesProject || null}
+                  cfConnected={cfConnected}
+                  onUpdate={(project) => {
+                    setSites((prev) =>
+                      prev.map((s) =>
+                        s.id === site.id ? { ...s, cfPagesProject: project } : s
+                      )
+                    );
+                  }}
+                />
               </div>
               <div className="flex gap-2">
                 {site.published && (
@@ -224,6 +259,15 @@ export default function DashboardClient({
                   {dict.dashboard.edit}
                 </Link>
                 <button
+                  onClick={() => handleExport(site)}
+                  className="text-sm px-3 py-1.5 rounded-md border border-card-border text-muted hover:text-foreground hover:border-accent transition"
+                  title={dict.dashboard.export}
+                >
+                  <svg className="h-4 w-4 inline" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                  </svg>
+                </button>
+                <button
                   onClick={() => handleDelete(site.id)}
                   className="text-sm px-3 py-1.5 rounded-md border border-danger/30 text-danger hover:bg-danger/10 transition"
                 >
@@ -234,6 +278,7 @@ export default function DashboardClient({
           ))}
         </div>
       )}
+
     </div>
   );
 }
