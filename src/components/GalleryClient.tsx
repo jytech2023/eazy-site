@@ -172,6 +172,15 @@ export default function GalleryClient({ locale }: { locale: Locale }) {
       <div className="text-center mb-12">
         <h1 className="text-3xl sm:text-4xl font-bold">{d.title}</h1>
         <p className="mt-3 text-lg text-muted">{d.subtitle}</p>
+        <Link
+          href={`/${locale}/editor`}
+          className="inline-flex items-center gap-2 mt-6 rounded-lg bg-accent px-6 py-2.5 text-sm font-medium text-white hover:bg-accent-dark transition shadow-lg shadow-accent/20"
+        >
+          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+          {d.createCta}
+        </Link>
       </div>
 
       {sites.length === 0 ? (
@@ -314,6 +323,19 @@ export default function GalleryClient({ locale }: { locale: Locale }) {
           )}
         </>
       )}
+      {/* Floating "Create Site" button */}
+      {sites.length > 0 && (
+        <Link
+          href={`/${locale}/editor`}
+          className="fixed bottom-6 right-6 z-40 flex items-center gap-2 rounded-full bg-accent px-5 py-3 text-sm font-medium text-white shadow-xl shadow-accent/25 hover:bg-accent-dark transition hover:scale-105"
+        >
+          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+          </svg>
+          <span className="hidden sm:inline">{d.createCta}</span>
+        </Link>
+      )}
+
       {/* Code Viewer Modal */}
       {codeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

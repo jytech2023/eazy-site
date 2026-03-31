@@ -4,6 +4,20 @@ import { useEffect, useRef, useState, useCallback } from "react";
 
 type Files = Record<string, string>;
 
+// Module-level singleton — WebContainer only allows one instance per page
+let globalContainer: import("@webcontainer/api").WebContainer | null = null;
+let bootPromise: Promise<import("@webcontainer/api").WebContainer> | null = null;
+
+async function getContainer(): Promise<import("@webcontainer/api").WebContainer> {
+  if (globalContainer) return globalContainer;
+  if (bootPromise) return bootPromise;
+  bootPromise = import("@webcontainer/api").then(async ({ WebContainer }) => {
+    globalContainer = await WebContainer.boot();
+    return globalContainer;
+  });
+  return bootPromise;
+}
+
 type Status = "idle" | "booting" | "installing" | "running" | "error" | "ready";
 
 const STATUS_LABELS: Record<Status, string> = {
@@ -15,12 +29,45 @@ const STATUS_LABELS: Record<Status, string> = {
   ready: "Running",
 };
 
+export type WebContainerStatus = Status;
+
+// Run `npm run build` in the container and return the built files
+export async function buildInContainer(): Promise<Record<string, string> | null> {
+  if (!globalContainer) return null;
+  try {
+    const buildProcess = await globalContainer.spawn("npm", ["run", "build"]);
+    const exitCode = await buildProcess.exit;
+    if (exitCode !== 0) return null;
+
+    // Read dist/ directory
+    const builtFiles: Record<string, string> = {};
+    async function readDir(path: string) {
+      const entries = await globalContainer!.fs.readdir(path, { withFileTypes: true });
+      for (const entry of entries) {
+        const fullPath = path === "." ? entry.name : `${path}/${entry.name}`;
+        if (entry.isDirectory()) {
+          await readDir(fullPath);
+        } else {
+          const content = await globalContainer!.fs.readFile(fullPath, "utf-8");
+          builtFiles[fullPath] = content;
+        }
+      }
+    }
+    await readDir("dist");
+    return Object.keys(builtFiles).length > 0 ? builtFiles : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function WebContainerPreview({
   files,
   onLog,
+  onStatusChange,
 }: {
   files: Files;
   onLog?: (line: string) => void;
+  onStatusChange?: (status: Status, url: string | null) => void;
 }) {
   const [status, setStatus] = useState<Status>("idle");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -68,14 +115,9 @@ export default function WebContainerPreview({
     setPreviewUrl(null);
 
     try {
-      const { WebContainer } = await import("@webcontainer/api");
-
-      if (!containerRef.current) {
-        containerRef.current = await WebContainer.boot();
-        log("[container] Booted");
-      }
-
-      const container = containerRef.current;
+      const container = await getContainer();
+      containerRef.current = container;
+      log("[container] Booted");
 
       // Mount files
       const tree = filesToTree(files);
@@ -150,6 +192,11 @@ export default function WebContainerPreview({
     }
   }, [files, log]);
 
+  // Notify parent of status changes
+  useEffect(() => {
+    onStatusChange?.(status, previewUrl);
+  }, [status, previewUrl, onStatusChange]);
+
   // Auto-boot on first render if package.json exists
   useEffect(() => {
     if (files["package.json"] && status === "idle") {
@@ -164,48 +211,15 @@ export default function WebContainerPreview({
     }
   }, [files, status, updateFiles]);
 
-  // Cleanup
+  // Cleanup — don't teardown the singleton, just clear the local ref
   useEffect(() => {
     return () => {
-      containerRef.current?.teardown();
       containerRef.current = null;
     };
   }, []);
 
   return (
     <div className="flex flex-col h-full">
-      {/* Status bar */}
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-card-border bg-card-bg/50 text-xs text-muted">
-        <span
-          className={`inline-block w-2 h-2 rounded-full ${
-            status === "ready"
-              ? "bg-success"
-              : status === "error"
-                ? "bg-danger"
-                : status === "idle"
-                  ? "bg-muted/50"
-                  : "bg-yellow-400 animate-pulse"
-          }`}
-        />
-        <span>{STATUS_LABELS[status]}</span>
-        {status === "idle" && files["package.json"] && (
-          <button
-            onClick={boot}
-            className="ml-auto text-accent hover:underline"
-          >
-            Run
-          </button>
-        )}
-        {status === "error" && (
-          <button
-            onClick={boot}
-            className="ml-auto text-accent hover:underline"
-          >
-            Retry
-          </button>
-        )}
-      </div>
-
       {/* Preview or status */}
       <div className="flex-1 min-h-0">
         {previewUrl ? (
@@ -240,6 +254,7 @@ export default function WebContainerPreview({
           </div>
         )}
       </div>
+
     </div>
   );
 }

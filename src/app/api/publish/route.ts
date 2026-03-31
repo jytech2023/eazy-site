@@ -22,7 +22,7 @@ async function getAuthUser() {
 
 export async function POST(request: Request) {
   const body = await request.json();
-  const { files, html, title, siteId } = body;
+  const { files, html, title, siteId, draft } = body;
 
   const siteFiles: Record<string, string> =
     files && Object.keys(files).length > 0
@@ -68,6 +68,9 @@ export async function POST(request: Request) {
     }
   }
 
+  // Anonymous sites are always public; logged-in users can save as draft
+  const shouldPublish = username === "anonymous" ? true : !draft;
+
   let savedSiteId: number;
   let slug: string;
 
@@ -91,7 +94,7 @@ export async function POST(request: Request) {
           .set({
             title: title || existing.title,
             htmlContent: JSON.stringify(siteFiles),
-            published: true,
+            published: shouldPublish,
             updatedAt: new Date(),
           })
           .where(eq(sites.id, existing.id));
@@ -107,7 +110,7 @@ export async function POST(request: Request) {
             title: title || "Untitled",
             slug,
             htmlContent: JSON.stringify(siteFiles),
-            published: true,
+            published: shouldPublish,
             isAnonymous: username === "anonymous",
             userId: dbUser?.id ?? null,
             sessionId: null,

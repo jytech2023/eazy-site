@@ -1,9 +1,11 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo, lazy, Suspense } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback, lazy, Suspense } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import LanguageSwitcher from "./LanguageSwitcher";
+import ThemeToggle from "./ThemeToggle";
 
 const WebContainerPreview = lazy(() => import("./WebContainerPreview"));
 
@@ -97,7 +99,6 @@ function stripThinkBlocks(response: string): string {
 function parseFiles(response: string): Files {
   const cleaned = stripThinkBlocks(response);
   const files: Files = {};
-  // Match ```lang filename=xxx\n...\n``` (supports nested backticks by being non-greedy)
   const regex = /```(\w+)\s+filename=([^\n]+)\n([\s\S]*?)```/g;
   let match;
   while ((match = regex.exec(cleaned)) !== null) {
@@ -116,6 +117,14 @@ function parseFiles(response: string): Files {
   }
 
   return files;
+}
+
+// Count how many files are still being streamed (opened but not closed)
+function countInProgressFiles(response: string): number {
+  const cleaned = stripThinkBlocks(response);
+  const opened = (cleaned.match(/```\w+\s+filename=/g) || []).length;
+  const closed = (cleaned.match(/\n```(?:\n|$)/g) || []).length;
+  return Math.max(0, opened - closed);
 }
 
 // If the AI inlined styles/scripts into HTML instead of creating separate files,
@@ -266,12 +275,23 @@ export default function SiteEditor({
   const [activeModel, setActiveModel] = useState<string | null>(null);
   const [models, setModels] = useState<{ id: string; name: string; tier: string; available: boolean }[]>([]);
   const [userPlan, setUserPlan] = useState("free");
+  const [taskQueue, setTaskQueue] = useState<{ id: string; text: string }[]>([]);
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
+  const [pendingFileCount, setPendingFileCount] = useState(0);
+  const [leftPanel, setLeftPanel] = useState<"chat" | "files">("chat");
+  const [openTabs, setOpenTabs] = useState<Set<string>>(new Set());
+  const [containerStatus, setContainerStatus] = useState<{ status: string; url: string | null }>({ status: "idle", url: null });
+  const [buildStatus, setBuildStatus] = useState<"idle" | "building" | "success" | "failed" | "saving">("idle");
+  const handleContainerStatus = useCallback((s: string, url: string | null) => {
+    setContainerStatus({ status: s, url });
+  }, []);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const autoContRef = useRef(0); // Track auto-continuation count to prevent infinite loops
+  const autoContRef = useRef(0);
   const pendingAutoContRef = useRef(false);
+  const processingQueueRef = useRef(false);
 
   const fileNames = useMemo(() => Object.keys(files), [files]);
   const hasFiles = fileNames.length > 0;
@@ -369,9 +389,39 @@ export default function SiteEditor({
     return openBlocks > closeBlocks;
   }
 
+  // Submit handler: if AI is busy, queue the task; otherwise run immediately
+  const handleSubmit = () => {
+    const text = prompt.trim();
+    if (!text) return;
+
+    if (loading) {
+      // AI is busy — add to task queue
+      setTaskQueue((prev) => [...prev, { id: crypto.randomUUID(), text }]);
+      setPrompt("");
+      // Reset textarea height
+      const ta = document.querySelector<HTMLTextAreaElement>(".editor-input-textarea");
+      if (ta) ta.style.height = "auto";
+      return;
+    }
+
+    handleGenerate();
+  };
+
+  // Process next item from the task queue
+  const processNextTask = () => {
+    setTaskQueue((prev) => {
+      if (prev.length === 0) return prev;
+      const [next, ...rest] = prev;
+      // Fire off generation with the queued prompt
+      setTimeout(() => handleGenerate(next.text), 100);
+      return rest;
+    });
+  };
+
   const handleGenerate = async (overridePrompt?: string) => {
     const effectivePrompt = overridePrompt || prompt;
-    if (!effectivePrompt.trim() || loading) return;
+    if (!effectivePrompt.trim()) return;
+    if (loading && !overridePrompt) return; // Prevent double-fire, but allow queue-driven calls
     setLoading(true);
     setPublishedUrl(null);
 
@@ -395,6 +445,7 @@ export default function SiteEditor({
           prompt: currentPrompt,
           model: selectedModel,
           files: hasFiles ? files : undefined,
+          activeFile: activeTab !== "preview" ? activeTab : undefined,
           siteId: currentSiteId,
           history: chatHistory.slice(-8),
         }),
@@ -413,6 +464,7 @@ export default function SiteEditor({
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
       let fullResponse = "";
+      let lastCommittedCount = 0; // Track how many files we've committed
 
       while (reader) {
         const { done, value } = await reader.read();
@@ -421,15 +473,22 @@ export default function SiteEditor({
         fullResponse += chunk;
         setStreamingContent(fullResponse);
 
-        // Live-parse files during streaming and merge with existing
-        const parsed = parseFiles(fullResponse);
-        if (Object.keys(parsed).length > 0) {
-          const merged = mergeFiles(existingFiles, parsed);
+        // Only commit fully-closed files during streaming (not half-written ones)
+        const completeParsed = parseFiles(fullResponse);
+        const completeCount = Object.keys(completeParsed).length;
+        const inProgress = countInProgressFiles(fullResponse);
+        setPendingFileCount(inProgress);
+
+        // Commit new complete files as they finish (not mid-write)
+        if (completeCount > lastCommittedCount) {
+          const merged = mergeFiles(existingFiles, completeParsed);
           setFiles(merged);
+          lastCommittedCount = completeCount;
         }
       }
 
-      // Final parse, extract inline assets, and merge
+      // Final parse, extract inline assets, and merge all files
+      setPendingFileCount(0);
       let finalParsed = parseFiles(fullResponse);
       if (Object.keys(finalParsed).length > 0) {
         finalParsed = extractInlineAssets(finalParsed);
@@ -447,10 +506,10 @@ export default function SiteEditor({
         { role: "assistant", content: fullResponse + (wasTruncated ? "\n\n⚠️ *Output truncated — auto-continuing...*" : "") },
       ]);
 
-      // Auto-publish for anonymous users after each turn
+      // Auto-save after each turn (draft for logged-in, publish for anonymous)
       const finalFiles = mergeFiles(existingFiles, finalParsed);
-      if (!user && Object.keys(finalParsed).length > 0) {
-        autoPublish(finalFiles);
+      if (Object.keys(finalParsed).length > 0) {
+        autoSave(finalFiles);
       }
 
       // Auto-continue if output was truncated (max 2 continuations to prevent loops)
@@ -490,30 +549,82 @@ export default function SiteEditor({
     } finally {
       setLoading(false);
       abortControllerRef.current = null;
+
+      // Process next queued task (unless a task is being edited — pause pickup)
+      if (!pendingAutoContRef.current && !editingTaskId) {
+        setTimeout(() => processNextTask(), 300);
+      }
     }
   };
 
-  // Auto-publish for anonymous users (fire-and-forget, no loading state)
-  const autoPublish = async (filesToPublish: Files) => {
+  // Run build in WebContainer and save the output
+  const runBuildAndSave = useCallback(async () => {
+    if (!files["package.json"]) return;
+    if (buildStatus === "building") return; // Already building
+
+    setBuildStatus("building");
     try {
+      const { buildInContainer } = await import("./WebContainerPreview");
+      const built = await buildInContainer();
+      if (built) {
+        // Save source + built output together
+        const allFiles = { ...files, ...built };
+        setBuildStatus("saving");
+        const res = await fetch("/api/publish", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            files: allFiles,
+            siteId: currentSiteId,
+            draft: !!user,
+            title: chatHistory.find((m) => m.role === "user")?.content.slice(0, 50) || "My Site",
+          }),
+        });
+        const data = await res.json();
+        if (data.url && !user) setPublishedUrl(data.url);
+        if (data.siteId) setCurrentSiteId(data.siteId.toString());
+        setBuildStatus("success");
+      } else {
+        setBuildStatus("failed");
+      }
+    } catch {
+      setBuildStatus("failed");
+    }
+    setTimeout(() => setBuildStatus("idle"), 5000);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files, currentSiteId, user, buildStatus]);
+
+  // Auto-build when WebContainer becomes ready (after boot/file change)
+  useEffect(() => {
+    if (containerStatus.status === "ready" && files["package.json"] && buildStatus === "idle") {
+      // Delay slightly to let dev server stabilize
+      const timer = setTimeout(() => runBuildAndSave(), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [containerStatus.status, files, buildStatus, runBuildAndSave]);
+
+  // Auto-save after each generation turn (fire-and-forget)
+  // Anonymous: saves as published (public). Logged-in: saves as draft (private).
+  const autoSave = async (filesToSave: Files) => {
+    try {
+      setBuildStatus("saving");
       const res = await fetch("/api/publish", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          files: filesToPublish,
+          files: filesToSave,
           siteId: currentSiteId,
-          title:
-            chatHistory.find((m) => m.role === "user")?.content.slice(0, 50) ||
-            "My Site",
+          draft: !!user,
+          title: chatHistory.find((m) => m.role === "user")?.content.slice(0, 50) || "My Site",
         }),
       });
       const data = await res.json();
-      if (data.url) {
-        setPublishedUrl(data.url);
-        if (data.siteId) setCurrentSiteId(data.siteId.toString());
-      }
+      if (data.url && !user) setPublishedUrl(data.url);
+      if (data.siteId) setCurrentSiteId(data.siteId.toString());
+      setBuildStatus("success");
+      setTimeout(() => setBuildStatus("idle"), 3000);
     } catch {
-      // Silent fail for auto-publish
+      setBuildStatus("idle");
     }
   };
 
@@ -589,7 +700,7 @@ export default function SiteEditor({
           <Link href={`/${locale}/gallery`} className="hover:text-foreground transition">{dict.nav.gallery}</Link>
         </div>
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
         <button
           onClick={handleNew}
           className="text-xs text-accent hover:text-accent-dark transition"
@@ -605,83 +716,201 @@ export default function SiteEditor({
             {dict.nav.login}
           </a>
         )}
+        <LanguageSwitcher locale={locale} />
+        <ThemeToggle />
       </div>
     </nav>
 
     <div className="flex flex-col lg:flex-row flex-1 min-h-0">
-      {/* Left: Chat panel */}
+      {/* Left: Chat + Files panel */}
       <div className="flex flex-col w-full lg:w-100 border-b lg:border-b-0 lg:border-r border-card-border bg-background">
 
-        {/* Chat messages */}
-        <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0 max-h-[30vh] lg:max-h-none">
-          {chatHistory.length === 0 && (
-            <div className="text-center text-muted py-12">
-              <svg className="mx-auto h-12 w-12 text-muted/50 mb-4" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-              </svg>
-              <p className="text-sm">{dict.editor.placeholder}</p>
-            </div>
-          )}
-          {chatHistory.map((msg, i) => (
-            <div
-              key={i}
-              className={`text-sm rounded-lg px-3 py-2 ${
-                msg.role === "user"
-                  ? "bg-accent/10 text-foreground ml-6"
-                  : "bg-card-bg text-foreground mr-6"
-              }`}
-            >
-              {msg.role === "assistant" ? (
-                <AssistantMessage content={msg.content} />
-              ) : (
-                msg.content
-              )}
-            </div>
-          ))}
-          {loading && (
-            <div className="bg-card-bg text-foreground mr-6 rounded-lg px-3 py-2 text-sm">
-              {streamingContent ? (
-                <AssistantMessage content={streamingContent} />
-              ) : (
-                <span className="inline-flex gap-1">
-                  <span className="animate-bounce">.</span>
-                  <span className="animate-bounce" style={{ animationDelay: "0.1s" }}>.</span>
-                  <span className="animate-bounce" style={{ animationDelay: "0.2s" }}>.</span>
-                </span>
-              )}
-            </div>
-          )}
-          <div ref={chatEndRef} />
+        {/* Panel tabs */}
+        <div className="flex items-center border-b border-card-border shrink-0">
+          <button
+            onClick={() => setLeftPanel("chat")}
+            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium transition ${
+              leftPanel === "chat"
+                ? "text-foreground border-b-2 border-accent"
+                : "text-muted hover:text-foreground"
+            }`}
+          >
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
+            </svg>
+            Chat
+            {loading && <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />}
+          </button>
+          <button
+            onClick={() => setLeftPanel("files")}
+            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium transition ${
+              leftPanel === "files"
+                ? "text-foreground border-b-2 border-accent"
+                : "text-muted hover:text-foreground"
+            }`}
+          >
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+            </svg>
+            Files
+            {hasFiles && <span className="text-[10px] text-muted">({fileNames.length})</span>}
+            {pendingFileCount > 0 && <span className="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />}
+          </button>
         </div>
 
-        {/* Files panel */}
-        {hasFiles && (
+        {/* Chat view */}
+        {leftPanel === "chat" ? (
+          <div ref={chatContainerRef} className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0 max-h-[30vh] lg:max-h-none">
+            {chatHistory.length === 0 && (
+              <div className="text-center text-muted py-12">
+                <svg className="mx-auto h-12 w-12 text-muted/50 mb-4" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                </svg>
+                <p className="text-sm">{dict.editor.placeholder}</p>
+              </div>
+            )}
+            {chatHistory.map((msg, i) => (
+              <div
+                key={i}
+                className={`text-sm rounded-lg px-3 py-2 ${
+                  msg.role === "user"
+                    ? "bg-accent/10 text-foreground ml-6"
+                    : "bg-card-bg text-foreground mr-6"
+                }`}
+              >
+                {msg.role === "assistant" ? (
+                  <AssistantMessage content={msg.content} />
+                ) : (
+                  msg.content
+                )}
+              </div>
+            ))}
+            {loading && (
+              <div className="bg-card-bg text-foreground mr-6 rounded-lg px-3 py-2 text-sm">
+                {streamingContent ? (
+                  <AssistantMessage content={streamingContent} />
+                ) : (
+                  <span className="inline-flex gap-1">
+                    <span className="animate-bounce">.</span>
+                    <span className="animate-bounce" style={{ animationDelay: "0.1s" }}>.</span>
+                    <span className="animate-bounce" style={{ animationDelay: "0.2s" }}>.</span>
+                  </span>
+                )}
+              </div>
+            )}
+            <div ref={chatEndRef} />
+          </div>
+        ) : (
+          /* Files view */
+          <div className="flex-1 overflow-y-auto min-h-0 max-h-[30vh] lg:max-h-none">
+            {hasFiles ? (
+              <div className="p-2 space-y-0.5">
+                {fileNames.map((name) => (
+                  <button
+                    key={name}
+                    onClick={() => {
+                      setActiveTab(name);
+                      setOpenTabs((prev) => new Set(prev).add(name));
+                    }}
+                    className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition ${
+                      activeTab === name && openTabs.has(name)
+                        ? "bg-accent/10 text-foreground border border-accent/20"
+                        : "text-muted hover:text-foreground hover:bg-card-bg"
+                    }`}
+                  >
+                    <span className={`text-xs font-bold ${getFileColor(name)}`}>
+                      {getFileIcon(name)}
+                    </span>
+                    <span className="truncate">{name}</span>
+                    <span className="ml-auto text-xs text-muted">
+                      {files[name].length < 1024
+                        ? `${files[name].length} B`
+                        : `${(files[name].length / 1024).toFixed(1)} KB`}
+                    </span>
+                  </button>
+                ))}
+                {pendingFileCount > 0 && (
+                  <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted animate-pulse">
+                    <span className="w-1.5 h-1.5 rounded-full bg-yellow-400" />
+                    {pendingFileCount} file{pendingFileCount > 1 ? "s" : ""} generating...
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center justify-center h-full text-muted text-sm py-12">
+                No files yet
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Task Queue */}
+        {taskQueue.length > 0 && (
           <div className="border-t border-card-border">
-            <div className="px-4 py-2 text-xs font-semibold text-muted uppercase tracking-wider flex items-center gap-1.5">
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
-              </svg>
-              Files
+            <div className="px-3 py-1.5 text-xs font-semibold text-muted uppercase tracking-wider flex items-center justify-between">
+              <span className="flex items-center gap-1.5">
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" />
+                </svg>
+                Queue ({taskQueue.length})
+              </span>
+              {editingTaskId && (
+                <span className="text-yellow-400 normal-case font-normal">paused</span>
+              )}
             </div>
-            <div className="px-2 pb-2 space-y-0.5">
-              {fileNames.map((name) => (
-                <button
-                  key={name}
-                  onClick={() => setActiveTab(name)}
-                  className={`w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition ${
-                    activeTab === name
-                      ? "bg-accent/10 text-foreground"
-                      : "text-muted hover:text-foreground hover:bg-card-bg"
-                  }`}
+            <div className="px-2 pb-2 space-y-1">
+              {taskQueue.map((task, idx) => (
+                <div
+                  key={task.id}
+                  className="flex items-start gap-1.5 group"
                 >
-                  <span className={`text-xs font-bold ${getFileColor(name)}`}>
-                    {getFileIcon(name)}
+                  <span className="shrink-0 w-5 h-5 rounded-full bg-accent/10 text-accent flex items-center justify-center text-[10px] font-bold mt-0.5">
+                    {idx + 1}
                   </span>
-                  <span className="truncate">{name}</span>
-                  <span className="ml-auto text-xs text-muted">
-                    {Math.ceil(files[name].length / 1024)}kb
-                  </span>
-                </button>
+                  {editingTaskId === task.id ? (
+                    <textarea
+                      autoFocus
+                      defaultValue={task.text}
+                      rows={2}
+                      className="flex-1 text-xs rounded-md border border-accent bg-card-bg px-2 py-1 text-foreground resize-none focus:outline-none"
+                      onBlur={(e) => {
+                        const newText = e.target.value.trim();
+                        if (newText) {
+                          setTaskQueue((prev) =>
+                            prev.map((t) => t.id === task.id ? { ...t, text: newText } : t)
+                          );
+                        }
+                        setEditingTaskId(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey) {
+                          e.preventDefault();
+                          (e.target as HTMLTextAreaElement).blur();
+                        }
+                        if (e.key === "Escape") {
+                          setEditingTaskId(null);
+                        }
+                      }}
+                    />
+                  ) : (
+                    <p
+                      className="flex-1 text-xs text-muted truncate cursor-pointer hover:text-foreground transition py-0.5"
+                      onClick={() => setEditingTaskId(task.id)}
+                      title="Click to edit"
+                    >
+                      {task.text}
+                    </p>
+                  )}
+                  <button
+                    onClick={() => setTaskQueue((prev) => prev.filter((t) => t.id !== task.id))}
+                    className="shrink-0 p-0.5 text-muted/50 hover:text-danger transition opacity-0 group-hover:opacity-100"
+                    title="Remove"
+                  >
+                    <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
               ))}
             </div>
           </div>
@@ -695,16 +924,23 @@ export default function SiteEditor({
           <div className="rounded-xl border border-card-border bg-card-bg focus-within:border-accent transition">
             <textarea
               value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
+              onChange={(e) => {
+                setPrompt(e.target.value);
+                // Auto-grow: reset height then set to scrollHeight
+                const el = e.target;
+                el.style.height = "auto";
+                el.style.height = Math.min(el.scrollHeight, 160) + "px";
+              }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  handleGenerate();
+                  handleSubmit();
                 }
               }}
               placeholder={dict.editor.placeholder}
-              rows={2}
-              className="w-full resize-none bg-transparent px-3 pt-3 pb-1 text-sm text-foreground placeholder:text-muted/60 focus:outline-none"
+              rows={1}
+              className="editor-input-textarea w-full resize-none bg-transparent px-3 pt-3 pb-1 text-sm text-foreground placeholder:text-muted/60 focus:outline-none"
+              style={{ minHeight: "36px", maxHeight: "160px" }}
             />
             <div className="flex items-center justify-between px-2 pb-2">
               <div className="flex items-center gap-1.5">
@@ -730,28 +966,35 @@ export default function SiteEditor({
                   </a>
                 )}
               </div>
-              {loading ? (
+              <div className="flex items-center gap-1">
+                {loading && (
+                  <button
+                    onClick={handleCancel}
+                    className="rounded-lg border border-danger/30 bg-danger/10 p-1.5 text-danger hover:bg-danger/20 transition"
+                    title="Stop"
+                  >
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9a2.25 2.25 0 012.25 2.25v9a2.25 2.25 0 01-2.25 2.25h-9a2.25 2.25 0 01-2.25-2.25v-9z" />
+                    </svg>
+                  </button>
+                )}
                 <button
-                  onClick={handleCancel}
-                  className="rounded-lg border border-danger/30 bg-danger/10 p-1.5 text-danger hover:bg-danger/20 transition"
-                  title="Stop"
-                >
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 7.5A2.25 2.25 0 017.5 5.25h9a2.25 2.25 0 012.25 2.25v9a2.25 2.25 0 01-2.25 2.25h-9a2.25 2.25 0 01-2.25-2.25v-9z" />
-                  </svg>
-                </button>
-              ) : (
-                <button
-                  onClick={() => handleGenerate()}
+                  onClick={handleSubmit}
                   disabled={!prompt.trim()}
-                  className="rounded-lg bg-accent p-1.5 text-white hover:bg-accent-dark transition disabled:opacity-30"
-                  title={dict.editor.send}
+                  className={`rounded-lg p-1.5 text-white transition disabled:opacity-30 ${loading ? "bg-yellow-500 hover:bg-yellow-600" : "bg-accent hover:bg-accent-dark"}`}
+                  title={loading ? "Add to queue" : dict.editor.send}
                 >
-                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
-                  </svg>
+                  {loading ? (
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                    </svg>
+                  ) : (
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+                    </svg>
+                  )}
                 </button>
-              )}
+              </div>
             </div>
           </div>
         </div>
@@ -778,21 +1021,38 @@ export default function SiteEditor({
               {dict.editor.preview}
             </button>
 
-            {fileNames.map((name) => (
-              <button
+            {fileNames.filter((name) => openTabs.has(name)).map((name) => (
+              <div
                 key={name}
-                onClick={() => setActiveTab(name)}
-                className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition ${
+                className={`shrink-0 flex items-center gap-1 rounded-md transition group ${
                   activeTab === name
                     ? "bg-background text-foreground shadow-sm border border-card-border"
                     : "text-muted hover:text-foreground hover:bg-background/50"
                 }`}
               >
-                <span className={`font-bold ${getFileColor(name)}`}>
-                  {getFileIcon(name)}
-                </span>
-                {name}
-              </button>
+                <button
+                  onClick={() => setActiveTab(name)}
+                  className="flex items-center gap-1.5 pl-3 pr-1 py-1.5 text-xs font-medium"
+                >
+                  <span className={`font-bold ${getFileColor(name)}`}>
+                    {getFileIcon(name)}
+                  </span>
+                  {name}
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setOpenTabs((prev) => { const next = new Set(prev); next.delete(name); return next; });
+                    if (activeTab === name) setActiveTab("preview");
+                  }}
+                  className="p-1 mr-0.5 rounded text-muted/50 hover:text-foreground hover:bg-card-border/50 transition opacity-0 group-hover:opacity-100"
+                  title="Close tab"
+                >
+                  <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
             ))}
           </div>
 
@@ -858,7 +1118,10 @@ export default function SiteEditor({
           {activeTab === "preview" ? (
             files["package.json"] ? (
               <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin h-6 w-6 border-2 border-accent border-t-transparent rounded-full" /></div>}>
-                <WebContainerPreview files={files} />
+                <WebContainerPreview
+                  files={files}
+                  onStatusChange={handleContainerStatus}
+                />
               </Suspense>
             ) : previewHtml ? (
               <iframe
@@ -894,16 +1157,54 @@ export default function SiteEditor({
       <div className="flex items-center gap-3">
         <span className="flex items-center gap-1">
           <span className={`inline-block w-1.5 h-1.5 rounded-full ${loading ? "bg-yellow-400 animate-pulse" : hasFiles ? "bg-green-400" : "bg-muted/50"}`} />
-          {loading ? "Generating..." : hasFiles ? "Ready" : "No site"}
+          {loading
+            ? pendingFileCount > 0
+              ? `Writing file... (${pendingFileCount} in progress)`
+              : "Generating..."
+            : hasFiles ? "Ready" : "No site"}
         </span>
         {hasFiles && (
-          <span>{fileNames.length} file{fileNames.length > 1 ? "s" : ""} · {totalSize < 1024 ? `${totalSize} B` : `${(totalSize / 1024).toFixed(1)} KB`}</span>
+          <span>{fileNames.length} file{fileNames.length > 1 ? "s" : ""}{pendingFileCount > 0 ? ` (+${pendingFileCount})` : ""} · {totalSize < 1024 ? `${totalSize} B` : `${(totalSize / 1024).toFixed(1)} KB`}</span>
         )}
         {chatHistory.filter((m) => m.role === "user").length > 0 && (
           <span>{chatHistory.filter((m) => m.role === "user").length} turn{chatHistory.filter((m) => m.role === "user").length > 1 ? "s" : ""}</span>
         )}
+        {taskQueue.length > 0 && (
+          <span className="text-yellow-400">{taskQueue.length} queued</span>
+        )}
       </div>
       <div className="flex items-center gap-3">
+        {buildStatus !== "idle" && (
+          <span className="flex items-center gap-1">
+            <span className={`inline-block w-1.5 h-1.5 rounded-full ${
+              buildStatus === "success" ? "bg-success"
+                : buildStatus === "failed" ? "bg-danger"
+                : "bg-blue-400 animate-pulse"
+            }`} />
+            {buildStatus === "building" ? "Building..."
+              : buildStatus === "saving" ? "Saving..."
+              : buildStatus === "success" ? "Saved"
+              : "Build failed"}
+          </span>
+        )}
+        {containerStatus.status !== "idle" && (
+          <span className="flex items-center gap-1">
+            <span className={`inline-block w-1.5 h-1.5 rounded-full ${
+              containerStatus.status === "ready" ? "bg-success"
+                : containerStatus.status === "error" ? "bg-danger"
+                : "bg-yellow-400 animate-pulse"
+            }`} />
+            {containerStatus.status === "ready"
+              ? "Server running"
+              : containerStatus.status === "error"
+                ? "Server error"
+                : containerStatus.status === "booting"
+                  ? "Booting..."
+                  : containerStatus.status === "installing"
+                    ? "Installing..."
+                    : "Starting..."}
+          </span>
+        )}
         {publishedUrl && (
           <span className="text-green-400">Published</span>
         )}

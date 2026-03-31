@@ -3,36 +3,66 @@ import { sites, users } from "@/lib/schema";
 import { eq, and } from "drizzle-orm";
 
 // Inline CSS and JS files into the HTML so it works as a standalone page.
-// This is necessary because the /s/ route only serves index.html — relative
-// paths like "style.css" would resolve to /s/username/style.css which doesn't exist.
+// Handles both simple filenames (style.css) and build output paths (/assets/index-hash.js).
 function inlineAssets(html: string, filesMap: Record<string, string>): string {
   let result = html;
 
+  // Build a lookup: basename → content (for matching href/src references)
+  const byBasename = new Map<string, { name: string; content: string }>();
   for (const [name, content] of Object.entries(filesMap)) {
-    if (name === "index.html") continue;
+    if (name.endsWith(".html")) continue;
+    // Store by the last path segment (e.g., "dist/assets/index-abc.js" → "index-abc.js")
+    const basename = name.split("/").pop()!;
+    byBasename.set(basename, { name, content });
+  }
 
-    if (name.endsWith(".css")) {
-      // Replace <link href="style.css"> with inline <style>
-      const linkPattern = new RegExp(
-        `<link[^>]*href=["']${name.replace(".", "\\.")}["'][^>]*/?>`,
-        "i"
-      );
-      if (linkPattern.test(result)) {
-        result = result.replace(linkPattern, `<style>\n${content}\n</style>`);
-      } else if (result.includes("</head>")) {
-        result = result.replace("</head>", `<style>\n${content}\n</style>\n</head>`);
+  // Replace all <link> stylesheet references
+  result = result.replace(
+    /<link[^>]*href=["']([^"']+\.css)["'][^>]*\/?>/gi,
+    (match, href: string) => {
+      const basename = href.split("/").pop()!;
+      const file = byBasename.get(basename);
+      if (file) {
+        return `<style>\n${file.content}\n</style>`;
       }
-    } else if (name.endsWith(".js")) {
-      // Replace <script src="script.js"> with inline <script>
-      const scriptPattern = new RegExp(
-        `<script[^>]*src=["']${name.replace(".", "\\.")}["'][^>]*>\\s*</script>`,
-        "i"
-      );
-      if (scriptPattern.test(result)) {
-        result = result.replace(scriptPattern, `<script>\n${content}\n</script>`);
-      } else if (result.includes("</body>")) {
-        result = result.replace("</body>", `<script>\n${content}\n</script>\n</body>`);
+      // Try exact match from filesMap
+      const exact = filesMap[href] || filesMap[href.replace(/^\//, "")];
+      if (exact) return `<style>\n${exact}\n</style>`;
+      return match;
+    }
+  );
+
+  // Collect inlined scripts and move them to end of <body>
+  // (React's createRoot needs <div id="root"> to exist first)
+  const inlinedScripts: string[] = [];
+
+  result = result.replace(
+    /<script[^>]*src=["']([^"']+\.js)["'][^>]*>\s*<\/script>/gi,
+    (match, src: string) => {
+      const basename = src.split("/").pop()!;
+      const file = byBasename.get(basename);
+      if (file) {
+        inlinedScripts.push(file.content);
+        return ""; // Remove from original position
       }
+      const exact = filesMap[src] || filesMap[src.replace(/^\//, "")];
+      if (exact) {
+        inlinedScripts.push(exact);
+        return "";
+      }
+      return match;
+    }
+  );
+
+  // Inject all scripts at end of body so DOM is ready
+  // Use lastIndexOf to avoid matching "</body>" strings inside JS code
+  if (inlinedScripts.length > 0) {
+    const scripts = inlinedScripts.map((s) => `<script>\n${s}\n</script>`).join("\n");
+    const bodyCloseIdx = result.lastIndexOf("</body>");
+    if (bodyCloseIdx !== -1) {
+      result = result.slice(0, bodyCloseIdx) + scripts + "\n" + result.slice(bodyCloseIdx);
+    } else {
+      result += scripts;
     }
   }
 
@@ -98,8 +128,33 @@ export async function GET(
   let html: string;
   try {
     const filesMap = JSON.parse(site.htmlContent) as Record<string, string>;
-    html = filesMap["index.html"] || site.htmlContent;
-    html = inlineAssets(html, filesMap);
+
+    // Check if this is a framework project (has package.json with JSX/TSX files)
+    // These can't be served as static HTML — need a build step
+    if (filesMap["package.json"] && Object.keys(filesMap).some((f) => /\.(jsx|tsx)$/.test(f))) {
+      // If built output exists (dist/index.html), serve that with inlined assets
+      if (filesMap["dist/index.html"]) {
+        html = filesMap["dist/index.html"];
+        // Collect dist/ files for inlining (strip "dist/" prefix isn't needed — basename matching handles it)
+        html = inlineAssets(html, filesMap);
+      } else {
+        // No built output — show a landing page that links to the editor
+        const baseUrl = process.env.APP_BASE_URL || "https://easysite.jytech.us";
+        const editUrl = `${baseUrl}/${username === "anonymous" ? "en" : "en"}/editor/${site.id}`;
+        html = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${site.title || "EasySite"}</title><style>*{margin:0;padding:0;box-sizing:border-box}body{min-height:100vh;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;background:#0f0f0f;color:#fff}.card{text-align:center;padding:3rem 2rem;max-width:480px}h1{font-size:1.5rem;margin-bottom:0.75rem}p{color:#888;margin-bottom:1.5rem;line-height:1.6}a{display:inline-block;background:#6366f1;color:#fff;padding:0.75rem 2rem;border-radius:0.5rem;text-decoration:none;font-weight:500;transition:background 0.2s}a:hover{background:#4f46e5}</style></head><body><div class="card"><h1>This site uses React</h1><p>This project requires a build step to run. Open it in the EasySite editor to preview and interact with it.</p><a href="${editUrl}">Open in Editor</a></div></body></html>`;
+        // Skip inlineAssets and banner injection
+        return new Response(html, {
+          headers: {
+            "Content-Type": "text/html; charset=utf-8",
+            "Cache-Control": "public, max-age=60, s-maxage=300",
+            "Cross-Origin-Resource-Policy": "cross-origin",
+          },
+        });
+      }
+    } else {
+      html = filesMap["index.html"] || site.htmlContent;
+      html = inlineAssets(html, filesMap);
+    }
   } catch {
     html = site.htmlContent;
   }

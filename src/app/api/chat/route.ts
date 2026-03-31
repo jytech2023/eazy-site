@@ -166,13 +166,16 @@ Follow this structured approach:
 
   return `
 ## Editing Mode — Important Rules
-You are modifying an existing site. The user's current files are provided below.
+You are modifying an existing site. You receive:
+- **Full contents** of the most relevant files (active file, files mentioned in the prompt, core files)
+- **Summaries** of other files (filename + size + first line) — if you need to see a file's full content to make changes, tell the user to open that file and ask again, or make your best judgment based on the summary.
 
 - **Only output files that changed**. Do NOT re-output unchanged files — this wastes tokens and bandwidth.
 - If a file is unchanged, simply omit it from your response.
 - If you need to add a NEW file, output it with its filename.
 - If you need to DELETE a file, say so explicitly in your explanation (e.g., "I removed old-page.html").
 - Preserve the user's existing design decisions (colors, fonts, layout) unless they explicitly ask to change them.
+- When modifying a file you only see in summary, output the COMPLETE new version of that file.
 
 ## Response Workflow
 1. **Synthesize**: Understand exactly what the user wants changed. Identify which files need modification.
@@ -197,7 +200,7 @@ const MAX_TOTAL_FILE_CONTEXT = 50000;
 
 export async function POST(request: Request) {
   const body = await request.json();
-  const { prompt, files, history, model: requestedModel } = body;
+  const { prompt, files, activeFile, history, model: requestedModel } = body;
 
   // Determine user's plan and validate model selection
   let plan: PlanKey = "free";
@@ -286,45 +289,117 @@ export async function POST(request: Request) {
     }
   }
 
-  // Build user message with current files (smart context management)
+  // Build user message with smart file context (inspired by Claude-Code's on-demand file reading)
+  // Strategy: send full content for relevant files, tree summary for the rest
   let userContent = "";
   if (isEditing) {
-    let totalChars = 0;
-    const fileEntries: string[] = [];
+    const allFiles = files as Record<string, string>;
+    const fileNames = Object.keys(allFiles);
+    const promptLower = prompt.toLowerCase();
 
-    for (const [name, content] of Object.entries(files as Record<string, string>)) {
-      const fileContent = (content as string);
-      const ext = name.split(".").pop();
+    // Determine which files to send in full:
+    // 1. The file the user is currently viewing
+    // 2. Files mentioned in the prompt
+    // 3. For small projects (≤5 files), send everything
+    const isSmallProject = fileNames.length <= 5;
+    const relevantFiles = new Set<string>();
 
-      if (totalChars + fileContent.length > MAX_TOTAL_FILE_CONTEXT) {
-        // Truncate large files with a note
-        const remaining = MAX_TOTAL_FILE_CONTEXT - totalChars;
-        if (remaining > 500) {
-          const truncated = fileContent.slice(0, remaining);
-          fileEntries.push(
-            `\`\`\`${ext} filename=${name}\n${truncated}\n/* ... truncated (${fileContent.length} chars total) */\n\`\`\``
-          );
-        } else {
-          fileEntries.push(`[${name}: ${fileContent.length} chars, omitted for brevity]`);
-        }
-        break;
+    if (isSmallProject) {
+      fileNames.forEach((f) => relevantFiles.add(f));
+    } else {
+      // Always include the active file
+      if (activeFile && allFiles[activeFile]) {
+        relevantFiles.add(activeFile);
       }
 
-      if (fileContent.length > MAX_FILE_CONTEXT_CHARS) {
-        const truncated = fileContent.slice(0, MAX_FILE_CONTEXT_CHARS);
-        fileEntries.push(
-          `\`\`\`${ext} filename=${name}\n${truncated}\n/* ... truncated (${fileContent.length} chars total) */\n\`\`\``
-        );
-        totalChars += MAX_FILE_CONTEXT_CHARS;
-      } else {
-        fileEntries.push(`\`\`\`${ext} filename=${name}\n${fileContent}\n\`\`\``);
-        totalChars += fileContent.length;
+      // Include files mentioned in the prompt
+      for (const name of fileNames) {
+        const baseName = name.split("/").pop()!.toLowerCase();
+        const nameNoExt = baseName.replace(/\.\w+$/, "");
+        if (
+          promptLower.includes(baseName) ||
+          promptLower.includes(nameNoExt) ||
+          promptLower.includes(name.toLowerCase())
+        ) {
+          relevantFiles.add(name);
+        }
+      }
+
+      // Always include index.html and style.css (core structural files)
+      if (allFiles["index.html"]) relevantFiles.add("index.html");
+      if (allFiles["style.css"]) relevantFiles.add("style.css");
+
+      // If prompt is generic (e.g. "change the color"), include main entry files
+      if (relevantFiles.size <= 2) {
+        if (allFiles["src/App.jsx"]) relevantFiles.add("src/App.jsx");
+        if (allFiles["src/App.tsx"]) relevantFiles.add("src/App.tsx");
+        if (allFiles["src/main.jsx"]) relevantFiles.add("src/main.jsx");
+        if (allFiles["script.js"]) relevantFiles.add("script.js");
       }
     }
 
-    userContent = `## Current Site Files\n${fileEntries.join("\n\n")}\n\n## User Request\n${prompt}`;
+    // Build context: full content for relevant files, summary for others
+    const fullFileEntries: string[] = [];
+    const summaryEntries: string[] = [];
+    let totalChars = 0;
+
+    for (const name of fileNames) {
+      const content = allFiles[name];
+      const ext = name.split(".").pop();
+
+      if (relevantFiles.has(name) && totalChars + content.length <= MAX_TOTAL_FILE_CONTEXT) {
+        if (content.length > MAX_FILE_CONTEXT_CHARS) {
+          const truncated = content.slice(0, MAX_FILE_CONTEXT_CHARS);
+          fullFileEntries.push(
+            `\`\`\`${ext} filename=${name}\n${truncated}\n/* ... truncated (${content.length} chars total) */\n\`\`\``
+          );
+          totalChars += MAX_FILE_CONTEXT_CHARS;
+        } else {
+          fullFileEntries.push(`\`\`\`${ext} filename=${name}\n${content}\n\`\`\``);
+          totalChars += content.length;
+        }
+      } else {
+        // Summary: filename, size, and first meaningful line
+        const firstLine = content.split("\n").find((l) => l.trim().length > 0)?.trim().slice(0, 80) || "";
+        summaryEntries.push(`- ${name} (${content.length < 1024 ? content.length + "B" : (content.length / 1024).toFixed(1) + "KB"}) — ${firstLine}`);
+      }
+    }
+
+    const noHistory = !history?.length;
+    const sections: string[] = [];
+
+    if (fullFileEntries.length > 0) {
+      sections.push(`## Full File Contents (${fullFileEntries.length} files)\n${fullFileEntries.join("\n\n")}`);
+    }
+    if (summaryEntries.length > 0) {
+      sections.push(`## Other Files (summary only — request full content if needed)\n${summaryEntries.join("\n")}`);
+    }
+    if (noHistory) {
+      sections.push("Note: This is an existing site. The user is returning to edit it. Build on top of the current code — do NOT start from scratch.");
+    }
+    sections.push(`## User Request\n${prompt}`);
+
+    userContent = sections.join("\n\n");
   } else {
     userContent = prompt;
+  }
+
+  // Auto web search: detect if the prompt mentions brands, companies, products,
+  // or asks for current/real information that benefits from search
+  if (process.env.SERPER_API_KEY) {
+    const { extractSearchQuery, webSearch, formatSearchContext } = await import("@/lib/web-search");
+    const searchQuery = extractSearchQuery(prompt);
+    if (searchQuery) {
+      try {
+        const searchResults = await webSearch(searchQuery, 5);
+        if (searchResults.results.length > 0) {
+          const searchContext = formatSearchContext(searchResults);
+          userContent = `${searchContext}\n\n---\n\n${userContent}`;
+        }
+      } catch (err) {
+        console.error("Web search failed:", err);
+      }
+    }
   }
 
   messages.push({ role: "user", content: userContent });
