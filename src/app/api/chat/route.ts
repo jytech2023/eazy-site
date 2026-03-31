@@ -98,13 +98,38 @@ Use labeled code blocks for each file:
 - Prefer CSS animations over JavaScript when possible`;
 
 // --- System Prompt: Dynamic section (changes per-request context) ---
-function buildDynamicPrompt(isEditing: boolean): string {
+function buildDynamicPrompt(isEditing: boolean, isContinuation: boolean): string {
+  // Continuation mode: user said "continue" after truncated output
+  if (isContinuation) {
+    return `
+## Continuation Mode
+Your previous response was truncated mid-output. The user is asking you to continue.
+
+- Pick up EXACTLY where you left off — do not restart or repeat what was already output.
+- Continue outputting the remaining code blocks with the same \`\`\`lang filename=xxx format.
+- If you were mid-file, start from where you stopped (don't re-output the beginning of the file).
+- After completing the remaining files, briefly confirm what was finished.`;
+  }
+
   if (!isEditing) {
     return `
+## Response Workflow
+Follow this structured approach:
+
+1. **Plan** (1-3 sentences): State what you'll build — layout, sections, color direction.
+2. **Generate**: Output all code files using the labeled format.
+3. **Self-Review**: After generating, mentally verify:
+   - All \`<link>\` and \`<script>\` tags reference the correct filenames
+   - HTML is valid and properly closed
+   - CSS covers mobile (320px) through desktop (1440px)
+   - Interactive elements have hover/focus states
+   - No placeholder text like "Lorem ipsum" unless explicitly asked
+   If you spot an issue, fix it in the code before outputting — don't mention the fix.
+
 ## Response Style
 - Lead with your brief plan, then deliver the code
 - Keep explanations concise — the code speaks for itself
-- After the code, optionally suggest 1-2 improvements the user could ask for next`;
+- After the code, suggest 1-2 specific improvements the user could ask for next`;
   }
 
   return `
@@ -116,12 +141,20 @@ You are modifying an existing site. The user's current files are provided below.
 - If you need to add a NEW file, output it with its filename.
 - If you need to DELETE a file, say so explicitly in your explanation (e.g., "I removed old-page.html").
 - Preserve the user's existing design decisions (colors, fonts, layout) unless they explicitly ask to change them.
-- When making structural changes, explain what changed and why.
+
+## Response Workflow
+1. **Synthesize**: Understand exactly what the user wants changed. Identify which files need modification.
+2. **Implement**: Output only the changed/new code blocks.
+3. **Self-Review**: Verify your changes don't break existing functionality:
+   - Do modified CSS selectors still match HTML elements?
+   - Do added scripts reference correct DOM IDs/classes?
+   - Is the responsive layout still intact?
+   Fix any issues in the code before outputting.
 
 ## Response Style
 - Start with a brief summary of what you changed (1-2 sentences)
 - Then output only the modified/new code blocks
-- Optionally suggest follow-up improvements`;
+- Suggest 1-2 follow-up improvements`;
 }
 
 // Maximum characters per file to include in context (prevents token overflow)
@@ -189,7 +222,8 @@ export async function POST(request: Request) {
 
   const isEditing = files && Object.keys(files).length > 0;
 
-  const systemPrompt = SYSTEM_PROMPT_STATIC + "\n" + buildDynamicPrompt(!!isEditing);
+  const isContinuation = /^(continue|继续|계속|continuar)\b/i.test(prompt?.trim() || "");
+  const systemPrompt = SYSTEM_PROMPT_STATIC + "\n" + buildDynamicPrompt(!!isEditing, isContinuation);
 
   const messages: { role: "system" | "user" | "assistant"; content: string }[] =
     [{ role: "system", content: systemPrompt }];

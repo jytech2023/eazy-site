@@ -21,40 +21,60 @@ const t = {
     subtitle: "Websites built by the community with AI",
     by: "by",
     anonymous: "Anonymous",
-    viewSite: "View Site",
+    viewSite: "View",
+    viewCode: "Code",
+    fork: "Fork",
+    forking: "Forking...",
+    forked: "Forked! Opening editor...",
     loadMore: "Load More",
     empty: "No sites yet. Be the first to create one!",
     createCta: "Create Your Site",
+    close: "Close",
   },
   zh: {
     title: "作品展示",
     subtitle: "社区使用 AI 创建的网站",
     by: "作者",
     anonymous: "匿名用户",
-    viewSite: "查看网站",
+    viewSite: "查看",
+    viewCode: "代码",
+    fork: "复刻",
+    forking: "复刻中...",
+    forked: "已复刻！正在打开编辑器...",
     loadMore: "加载更多",
     empty: "还没有网站。成为第一个创建的人！",
     createCta: "创建你的网站",
+    close: "关闭",
   },
   es: {
     title: "Galería",
     subtitle: "Sitios web creados por la comunidad con IA",
     by: "por",
     anonymous: "Anónimo",
-    viewSite: "Ver Sitio",
+    viewSite: "Ver",
+    viewCode: "Código",
+    fork: "Bifurcar",
+    forking: "Bifurcando...",
+    forked: "¡Bifurcado! Abriendo editor...",
     loadMore: "Cargar Más",
     empty: "Aún no hay sitios. ¡Sé el primero en crear uno!",
     createCta: "Crea Tu Sitio",
+    close: "Cerrar",
   },
   ko: {
     title: "갤러리",
     subtitle: "커뮤니티가 AI로 만든 웹사이트",
     by: "작성자",
     anonymous: "익명",
-    viewSite: "사이트 보기",
+    viewSite: "보기",
+    viewCode: "코드",
+    fork: "포크",
+    forking: "포크 중...",
+    forked: "포크 완료! 에디터 열기...",
     loadMore: "더 보기",
     empty: "아직 사이트가 없습니다. 첫 번째로 만들어 보세요!",
     createCta: "사이트 만들기",
+    close: "닫기",
   },
 };
 
@@ -75,6 +95,9 @@ export default function GalleryClient({ locale }: { locale: Locale }) {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [codeModal, setCodeModal] = useState<{ title: string; files: Record<string, string>; siteId: number } | null>(null);
+  const [codeTab, setCodeTab] = useState("index.html");
+  const [forking, setForking] = useState<number | null>(null);
   const d = t[locale];
 
   const fetchSites = async (p: number) => {
@@ -95,6 +118,30 @@ export default function GalleryClient({ locale }: { locale: Locale }) {
       })
       .finally(() => setLoading(false));
   }, []);
+
+  const handleViewCode = async (siteId: number) => {
+    const res = await fetch(`/api/gallery/site?id=${siteId}`);
+    if (!res.ok) return;
+    const data = await res.json();
+    setCodeTab(Object.keys(data.files)[0] || "index.html");
+    setCodeModal({ title: data.title, files: data.files, siteId: data.id });
+  };
+
+  const handleFork = async (siteId: number) => {
+    setForking(siteId);
+    try {
+      const res = await fetch("/api/fork", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ siteId }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      window.location.href = `/${locale}/editor/${data.siteId}`;
+    } finally {
+      setForking(null);
+    }
+  };
 
   const handleLoadMore = async () => {
     setLoadingMore(true);
@@ -154,17 +201,30 @@ export default function GalleryClient({ locale }: { locale: Locale }) {
                 key={site.id}
                 className="group rounded-xl border border-card-border overflow-hidden hover:border-accent/50 transition"
               >
-                {/* Preview iframe */}
+                {/* Preview iframe — scales 1440px viewport to fit card width */}
                 <a href={site.url} target="_blank" rel="noopener noreferrer" className="block">
-                  <div className="relative w-full h-48 bg-white overflow-hidden">
-                    <iframe
-                      src={site.url}
-                      className="w-[1280px] h-[800px] origin-top-left pointer-events-none"
-                      style={{ transform: "scale(0.25)", transformOrigin: "top left" }}
-                      sandbox="allow-scripts"
-                      title={site.title}
-                      loading="lazy"
-                    />
+                  <div className="relative w-full overflow-hidden bg-white" style={{ paddingBottom: "62.5%" }}>
+                    <div className="absolute inset-0" style={{ containerType: "inline-size" }}>
+                      <iframe
+                        src={site.url}
+                        className="absolute top-0 left-0 pointer-events-none border-0"
+                        style={{ width: "1440px", height: "900px", transform: "scale(var(--preview-scale))", transformOrigin: "top left" }}
+                        ref={(el) => {
+                          if (el) {
+                            const observer = new ResizeObserver((entries) => {
+                              for (const entry of entries) {
+                                const scale = entry.contentRect.width / 1440;
+                                el.style.setProperty("--preview-scale", String(scale));
+                              }
+                            });
+                            observer.observe(el.parentElement!);
+                          }
+                        }}
+                        sandbox="allow-scripts"
+                        title={site.title}
+                        loading="lazy"
+                      />
+                    </div>
                     <div className="absolute inset-0 bg-transparent group-hover:bg-accent/5 transition" />
                   </div>
                 </a>
@@ -194,14 +254,36 @@ export default function GalleryClient({ locale }: { locale: Locale }) {
                         <span className="text-xs text-muted/50">{timeAgo(site.createdAt)}</span>
                       </div>
                     </div>
-                    <a
-                      href={site.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="shrink-0 rounded-md border border-card-border px-2.5 py-1 text-xs text-muted hover:text-foreground hover:border-accent transition opacity-0 group-hover:opacity-100"
-                    >
-                      {d.viewSite}
-                    </a>
+                    <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition">
+                      <a
+                        href={site.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="rounded-md border border-card-border px-2 py-1 text-xs text-muted hover:text-foreground hover:border-accent transition"
+                        title={d.viewSite}
+                      >
+                        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                        </svg>
+                      </a>
+                      <button
+                        onClick={(e) => { e.preventDefault(); handleViewCode(site.id); }}
+                        className="rounded-md border border-card-border px-2 py-1 text-xs text-muted hover:text-foreground hover:border-accent transition"
+                        title={d.viewCode}
+                      >
+                        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={(e) => { e.preventDefault(); handleFork(site.id); }}
+                        disabled={forking !== null}
+                        className="rounded-md bg-accent px-2 py-1 text-xs font-medium text-white hover:bg-accent-dark transition disabled:opacity-50"
+                        title={d.fork}
+                      >
+                        {forking === site.id ? "..." : d.fork}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -227,6 +309,76 @@ export default function GalleryClient({ locale }: { locale: Locale }) {
             </div>
           )}
         </>
+      )}
+      {/* Code Viewer Modal */}
+      {codeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-background/80 backdrop-blur-sm"
+            onClick={() => setCodeModal(null)}
+          />
+          <div className="relative w-full max-w-3xl rounded-2xl border border-card-border bg-background shadow-2xl flex flex-col max-h-[85vh]">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-card-border">
+              <div className="flex items-center gap-3 min-w-0">
+                <svg className="h-5 w-5 text-accent shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
+                </svg>
+                <h2 className="text-lg font-semibold truncate">{codeModal.title}</h2>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => handleFork(codeModal.siteId)}
+                  disabled={forking !== null}
+                  className="rounded-lg bg-accent px-4 py-1.5 text-sm font-medium text-white hover:bg-accent-dark transition disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
+                  </svg>
+                  {forking === codeModal.siteId ? d.forking : d.fork}
+                </button>
+                <button
+                  onClick={() => setCodeModal(null)}
+                  className="rounded-lg p-1.5 text-muted hover:text-foreground hover:bg-card-bg transition"
+                >
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {/* File tabs */}
+            <div className="flex items-center gap-0.5 px-4 py-2 border-b border-card-border overflow-x-auto">
+              {Object.keys(codeModal.files).map((name) => (
+                <button
+                  key={name}
+                  onClick={() => setCodeTab(name)}
+                  className={`shrink-0 px-3 py-1.5 text-xs font-medium rounded-md transition ${
+                    codeTab === name
+                      ? "bg-card-bg text-foreground border border-card-border shadow-sm"
+                      : "text-muted hover:text-foreground"
+                  }`}
+                >
+                  {name}
+                </button>
+              ))}
+            </div>
+
+            {/* Code content */}
+            <div className="flex-1 overflow-auto">
+              <pre className="p-4 text-sm font-mono text-foreground leading-relaxed whitespace-pre-wrap break-words">
+                <code>{codeModal.files[codeTab] || ""}</code>
+              </pre>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-3 border-t border-card-border flex items-center justify-between text-xs text-muted">
+              <span>{Object.keys(codeModal.files).length} file{Object.keys(codeModal.files).length !== 1 ? "s" : ""}</span>
+              <span>{(codeModal.files[codeTab]?.length || 0).toLocaleString()} chars</span>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

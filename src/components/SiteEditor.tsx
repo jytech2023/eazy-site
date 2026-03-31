@@ -268,6 +268,8 @@ export default function SiteEditor({
   const chatContainerRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const autoContRef = useRef(0); // Track auto-continuation count to prevent infinite loops
+  const pendingAutoContRef = useRef(false);
 
   const fileNames = useMemo(() => Object.keys(files), [files]);
   const hasFiles = fileNames.length > 0;
@@ -318,6 +320,17 @@ export default function SiteEditor({
     }
   }, [siteId]);
 
+  // Auto-continue: when a generation ends with truncation, auto-send "continue"
+  useEffect(() => {
+    if (!loading && pendingAutoContRef.current) {
+      pendingAutoContRef.current = false;
+      // Directly trigger a continue generation after brief delay
+      const timer = setTimeout(() => handleGenerate("continue"), 500);
+      return () => clearTimeout(timer);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading]);
+
   // Auto-scroll only within the chat container
   useEffect(() => {
     const container = chatContainerRef.current;
@@ -341,8 +354,9 @@ export default function SiteEditor({
     return openBlocks > closeBlocks;
   }
 
-  const handleGenerate = async () => {
-    if (!prompt.trim() || loading) return;
+  const handleGenerate = async (overridePrompt?: string) => {
+    const effectivePrompt = overridePrompt || prompt;
+    if (!effectivePrompt.trim() || loading) return;
     setLoading(true);
     setPublishedUrl(null);
 
@@ -350,10 +364,10 @@ export default function SiteEditor({
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    const userMessage = { role: "user", content: prompt };
+    const userMessage = { role: "user", content: effectivePrompt };
     setChatHistory((prev) => [...prev, userMessage]);
-    const currentPrompt = prompt;
-    setPrompt("");
+    const currentPrompt = effectivePrompt;
+    if (!overridePrompt) setPrompt("");
 
     // Snapshot current files before generation for merge
     const existingFiles = { ...files };
@@ -409,21 +423,27 @@ export default function SiteEditor({
         setActiveTab("preview");
       }
 
-      // Detect truncated output and warn user (inspired by Claude-Code's max_output_tokens recovery)
+      // Detect truncated output (inspired by Claude-Code's max_output_tokens recovery)
       const wasTruncated = detectTruncation(fullResponse);
-      if (wasTruncated) {
-        fullResponse += "\n\n⚠️ *Output was truncated. Say \"continue\" to finish the remaining code.*";
-      }
 
       setStreamingContent("");
       setChatHistory((prev) => [
         ...prev,
-        { role: "assistant", content: fullResponse },
+        { role: "assistant", content: fullResponse + (wasTruncated ? "\n\n⚠️ *Output truncated — auto-continuing...*" : "") },
       ]);
 
       // Auto-publish for anonymous users after each turn
+      const finalFiles = mergeFiles(existingFiles, finalParsed);
       if (!user && Object.keys(finalParsed).length > 0) {
-        autoPublish(mergeFiles(existingFiles, finalParsed));
+        autoPublish(finalFiles);
+      }
+
+      // Auto-continue if output was truncated (max 2 continuations to prevent loops)
+      if (wasTruncated && autoContRef.current < 2) {
+        autoContRef.current++;
+        pendingAutoContRef.current = true;
+      } else {
+        autoContRef.current = 0;
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
@@ -707,7 +727,7 @@ export default function SiteEditor({
                 </button>
               ) : (
                 <button
-                  onClick={handleGenerate}
+                  onClick={() => handleGenerate()}
                   disabled={!prompt.trim()}
                   className="rounded-lg bg-accent p-1.5 text-white hover:bg-accent-dark transition disabled:opacity-30"
                   title={dict.editor.send}
