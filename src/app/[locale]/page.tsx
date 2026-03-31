@@ -12,8 +12,30 @@ export default async function HomePage({
   if (!hasLocale(locale)) notFound();
   const dict = await getDictionary(locale);
 
+  const baseUrl = process.env.APP_BASE_URL || "http://localhost:3000";
+  const jsonLd = {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    name: "EasySite",
+    url: `${baseUrl}/${locale}`,
+    description: dict.meta.description,
+    applicationCategory: "DesignApplication",
+    operatingSystem: "Web",
+    offers: {
+      "@type": "Offer",
+      price: "0",
+      priceCurrency: "USD",
+      description: "Free tier available",
+    },
+    inLanguage: locale === "zh" ? "zh-CN" : "en-US",
+  };
+
   return (
     <div className="min-h-screen">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       {/* Hero */}
       <section className="relative overflow-hidden py-20 sm:py-32">
         <div className="absolute inset-0 -z-10">

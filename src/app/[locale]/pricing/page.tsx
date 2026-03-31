@@ -2,6 +2,21 @@ import { hasLocale } from "@/lib/i18n";
 import { getDictionary } from "@/lib/dictionaries";
 import { notFound } from "next/navigation";
 import { PLANS } from "@/lib/stripe";
+import type { Metadata } from "next";
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ locale: string }>;
+}): Promise<Metadata> {
+  const { locale } = await params;
+  if (!hasLocale(locale)) return {};
+  const dict = await getDictionary(locale);
+  return {
+    title: dict.pricing.title,
+    description: dict.pricing.subtitle,
+  };
+}
 
 export default async function PricingPage({
   params,
@@ -84,7 +99,7 @@ export default async function PricingPage({
               {plan.features.map((f) => (
                 <li key={f} className="flex items-center gap-2 text-sm">
                   <svg
-                    className="h-4 w-4 text-success flex-shrink-0"
+                    className="h-4 w-4 text-success shrink-0"
                     fill="none"
                     viewBox="0 0 24 24"
                     strokeWidth={2}

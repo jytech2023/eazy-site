@@ -18,14 +18,22 @@ export async function generateMetadata({
   const { locale } = await params;
   if (!hasLocale(locale)) return {};
   const dict = await getDictionary(locale);
+  const baseUrl = process.env.APP_BASE_URL || "http://localhost:3000";
   return {
     title: dict.meta.title,
     description: dict.meta.description,
     alternates: {
+      canonical: `${baseUrl}/${locale}`,
       languages: {
-        en: "/en",
-        zh: "/zh",
+        en: `${baseUrl}/en`,
+        zh: `${baseUrl}/zh`,
       },
+    },
+    openGraph: {
+      title: dict.meta.title,
+      description: dict.meta.description,
+      url: `${baseUrl}/${locale}`,
+      locale: locale === "zh" ? "zh_CN" : "en_US",
     },
   };
 }
