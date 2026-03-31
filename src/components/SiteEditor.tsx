@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { useUser } from "@auth0/nextjs-auth0/client";
+import { useState, useEffect, useRef, useMemo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -22,6 +21,97 @@ type Dict = {
   };
 };
 
+type Files = Record<string, string>;
+
+// Parse AI response into files: { "index.html": "...", "style.css": "..." }
+function parseFiles(response: string): Files {
+  const files: Files = {};
+  // Match ```lang filename=xxx\n...\n```
+  const regex = /```(\w+)\s+filename=([^\n]+)\n([\s\S]*?)```/g;
+  let match;
+  while ((match = regex.exec(response)) !== null) {
+    const filename = match[2].trim();
+    files[filename] = match[3].trimEnd();
+  }
+
+  // Fallback: if no filename= blocks found, try old single-HTML format
+  if (Object.keys(files).length === 0) {
+    const htmlMatch = response.match(/```html\n([\s\S]*?)```/);
+    if (htmlMatch) {
+      files["index.html"] = htmlMatch[1].trimEnd();
+    } else if (response.trim().startsWith("<!DOCTYPE")) {
+      files["index.html"] = response.trim();
+    }
+  }
+
+  return files;
+}
+
+// Build a preview HTML that inlines CSS and JS for the iframe
+function buildPreviewHtml(files: Files): string {
+  let html = files["index.html"] || "";
+  if (!html) return "";
+
+  const css = files["style.css"] || "";
+  const js = files["script.js"] || "";
+
+  // Inject CSS inline (replace the link tag or append to head)
+  if (css) {
+    if (html.includes('href="style.css"')) {
+      html = html.replace(
+        /<link[^>]*href="style\.css"[^>]*\/?>/i,
+        `<style>\n${css}\n</style>`
+      );
+    } else if (html.includes("</head>")) {
+      html = html.replace("</head>", `<style>\n${css}\n</style>\n</head>`);
+    }
+  }
+
+  // Inject JS inline (replace the script tag or append to body)
+  if (js) {
+    if (html.includes('src="script.js"')) {
+      html = html.replace(
+        /<script[^>]*src="script\.js"[^>]*><\/script>/i,
+        `<script>\n${js}\n</script>`
+      );
+    } else if (html.includes("</body>")) {
+      html = html.replace("</body>", `<script>\n${js}\n</script>\n</body>`);
+    }
+  }
+
+  // Also inline any other CSS/JS files
+  for (const [name, content] of Object.entries(files)) {
+    if (name === "index.html" || name === "style.css" || name === "script.js") continue;
+    if (name.endsWith(".css")) {
+      html = html.replace(
+        new RegExp(`<link[^>]*href="${name.replace(".", "\\.")}"[^>]*/?>`, "i"),
+        `<style>\n${content}\n</style>`
+      );
+    } else if (name.endsWith(".js")) {
+      html = html.replace(
+        new RegExp(`<script[^>]*src="${name.replace(".", "\\.")}"[^>]*></script>`, "i"),
+        `<script>\n${content}\n</script>`
+      );
+    }
+  }
+
+  return html;
+}
+
+function getFileIcon(filename: string): string {
+  if (filename.endsWith(".html")) return "H";
+  if (filename.endsWith(".css")) return "C";
+  if (filename.endsWith(".js")) return "J";
+  return "F";
+}
+
+function getFileColor(filename: string): string {
+  if (filename.endsWith(".html")) return "text-orange-400";
+  if (filename.endsWith(".css")) return "text-blue-400";
+  if (filename.endsWith(".js")) return "text-yellow-400";
+  return "text-muted";
+}
+
 export default function SiteEditor({
   locale,
   dict,
@@ -31,22 +121,30 @@ export default function SiteEditor({
   dict: Dict;
   siteId?: string;
 }) {
-  const { user } = useUser();
+  const [user, setUser] = useState<{ name?: string; email?: string } | null>(null);
   const [prompt, setPrompt] = useState("");
-  const [html, setHtml] = useState("");
+  const [files, setFiles] = useState<Files>({});
   const [loading, setLoading] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"preview" | "code">("preview");
-  const [currentSiteId, setCurrentSiteId] = useState<string | undefined>(
-    siteId
-  );
-  const [chatHistory, setChatHistory] = useState<
-    { role: string; content: string }[]
-  >([]);
+  const [activeTab, setActiveTab] = useState<string>("preview");
+  const [currentSiteId, setCurrentSiteId] = useState<string | undefined>(siteId);
+  const [chatHistory, setChatHistory] = useState<{ role: string; content: string }[]>([]);
   const [streamingContent, setStreamingContent] = useState("");
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  const fileNames = useMemo(() => Object.keys(files), [files]);
+  const hasFiles = fileNames.length > 0;
+  const previewHtml = useMemo(() => buildPreviewHtml(files), [files]);
+
+  // Check auth state
+  useEffect(() => {
+    fetch("/auth/profile")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (data) setUser(data); })
+      .catch(() => {});
+  }, []);
 
   // Load existing site if editing
   useEffect(() => {
@@ -54,20 +152,20 @@ export default function SiteEditor({
       fetch(`/api/sites?id=${siteId}`)
         .then((r) => r.json())
         .then((data) => {
-          if (data.site) {
-            setHtml(data.site.htmlContent);
-            setCurrentSiteId(data.site.id.toString());
+          if (data.site?.files) {
+            setFiles(JSON.parse(data.site.files));
+          } else if (data.site?.htmlContent) {
+            setFiles({ "index.html": data.site.htmlContent });
           }
+          if (data.site) setCurrentSiteId(data.site.id.toString());
         });
     }
   }, [siteId]);
 
-  // Update iframe via srcdoc is handled declaratively below
-
   // Auto-scroll chat
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatHistory]);
+  }, [chatHistory, streamingContent]);
 
   const handleGenerate = async () => {
     if (!prompt.trim() || loading) return;
@@ -76,6 +174,7 @@ export default function SiteEditor({
 
     const userMessage = { role: "user", content: prompt };
     setChatHistory((prev) => [...prev, userMessage]);
+    const currentPrompt = prompt;
     setPrompt("");
 
     try {
@@ -83,8 +182,8 @@ export default function SiteEditor({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt: prompt,
-          currentHtml: html,
+          prompt: currentPrompt,
+          files: hasFiles ? files : undefined,
           siteId: currentSiteId,
           history: chatHistory.slice(-6),
         }),
@@ -95,37 +194,27 @@ export default function SiteEditor({
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
       let fullResponse = "";
-      let extractedHtml = "";
 
       while (reader) {
         const { done, value } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
         fullResponse += chunk;
-
-        // Show streaming markdown in chat
         setStreamingContent(fullResponse);
 
-        // Extract HTML from response (between ```html and ```)
-        const htmlMatch = fullResponse.match(
-          /```html\n([\s\S]*?)```|<!DOCTYPE[\s\S]*$/i
-        );
-        if (htmlMatch) {
-          extractedHtml = htmlMatch[1] || htmlMatch[0];
-          if (extractedHtml.trim().startsWith("<!DOCTYPE")) {
-            setHtml(extractedHtml);
-          }
+        // Live-parse files during streaming
+        const parsed = parseFiles(fullResponse);
+        if (Object.keys(parsed).length > 0) {
+          setFiles(parsed);
         }
       }
 
-      // Final extraction
-      const finalMatch = fullResponse.match(/```html\n([\s\S]*?)```/);
-      if (finalMatch) {
-        extractedHtml = finalMatch[1];
-        setHtml(extractedHtml);
-      } else if (fullResponse.trim().startsWith("<!DOCTYPE")) {
-        extractedHtml = fullResponse.trim();
-        setHtml(extractedHtml);
+      // Final parse
+      const finalFiles = parseFiles(fullResponse);
+      if (Object.keys(finalFiles).length > 0) {
+        setFiles(finalFiles);
+        // Switch to preview after generation
+        setActiveTab("preview");
       }
 
       setStreamingContent("");
@@ -144,7 +233,7 @@ export default function SiteEditor({
   };
 
   const handlePublish = async () => {
-    if (!html || publishing) return;
+    if (!hasFiles || publishing) return;
     setPublishing(true);
 
     try {
@@ -152,7 +241,7 @@ export default function SiteEditor({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          html,
+          files,
           siteId: currentSiteId,
           title:
             chatHistory.find((m) => m.role === "user")?.content.slice(0, 50) ||
@@ -173,18 +262,23 @@ export default function SiteEditor({
   };
 
   const handleNew = () => {
-    setHtml("");
+    setFiles({});
     setPrompt("");
     setChatHistory([]);
     setCurrentSiteId(undefined);
     setPublishedUrl(null);
+    setActiveTab("preview");
     window.history.replaceState(null, "", `/${locale}/editor`);
+  };
+
+  const updateFile = (name: string, content: string) => {
+    setFiles((prev) => ({ ...prev, [name]: content }));
   };
 
   return (
     <div className="flex flex-col lg:flex-row h-[calc(100vh-4rem)]">
       {/* Left: Chat panel */}
-      <div className="flex flex-col w-full lg:w-[400px] border-b lg:border-b-0 lg:border-r border-card-border bg-background">
+      <div className="flex flex-col w-full lg:w-100 border-b lg:border-b-0 lg:border-r border-card-border bg-background">
         <div className="flex items-center justify-between px-4 py-3 border-b border-card-border">
           <h2 className="font-semibold">{dict.editor.title}</h2>
           <button
@@ -199,18 +293,8 @@ export default function SiteEditor({
         <div className="flex-1 overflow-y-auto p-4 space-y-3 min-h-0 max-h-[30vh] lg:max-h-none">
           {chatHistory.length === 0 && (
             <div className="text-center text-muted py-12">
-              <svg
-                className="mx-auto h-12 w-12 text-muted/50 mb-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                strokeWidth={1}
-                stroke="currentColor"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z"
-                />
+              <svg className="mx-auto h-12 w-12 text-muted/50 mb-4" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
               </svg>
               <p className="text-sm">{dict.editor.placeholder}</p>
             </div>
@@ -226,9 +310,7 @@ export default function SiteEditor({
             >
               {msg.role === "assistant" ? (
                 <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-2 prose-headings:my-2">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {msg.content}
-                  </ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{msg.content}</ReactMarkdown>
                 </div>
               ) : (
                 msg.content
@@ -239,9 +321,7 @@ export default function SiteEditor({
             <div className="bg-card-bg text-foreground mr-6 rounded-lg px-3 py-2 text-sm">
               {streamingContent ? (
                 <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-1 prose-pre:my-2 prose-headings:my-2">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {streamingContent}
-                  </ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{streamingContent}</ReactMarkdown>
                 </div>
               ) : (
                 <span className="inline-flex gap-1">
@@ -254,6 +334,39 @@ export default function SiteEditor({
           )}
           <div ref={chatEndRef} />
         </div>
+
+        {/* Files panel */}
+        {hasFiles && (
+          <div className="border-t border-card-border">
+            <div className="px-4 py-2 text-xs font-semibold text-muted uppercase tracking-wider flex items-center gap-1.5">
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
+              </svg>
+              Files
+            </div>
+            <div className="px-2 pb-2 space-y-0.5">
+              {fileNames.map((name) => (
+                <button
+                  key={name}
+                  onClick={() => setActiveTab(name)}
+                  className={`w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition ${
+                    activeTab === name
+                      ? "bg-accent/10 text-foreground"
+                      : "text-muted hover:text-foreground hover:bg-card-bg"
+                  }`}
+                >
+                  <span className={`text-xs font-bold ${getFileColor(name)}`}>
+                    {getFileIcon(name)}
+                  </span>
+                  <span className="truncate">{name}</span>
+                  <span className="ml-auto text-xs text-muted">
+                    {Math.ceil(files[name].length / 1024)}kb
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Input */}
         <div className="p-4 border-t border-card-border">
@@ -285,47 +398,57 @@ export default function SiteEditor({
         </div>
       </div>
 
-      {/* Right: Preview / Code */}
+      {/* Right: Preview / File tabs */}
       <div className="flex-1 flex flex-col min-h-0">
         {/* Tabs & Actions */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-card-border">
-          <div className="flex gap-1 bg-card-bg rounded-lg p-1">
+        <div className="flex items-center justify-between px-4 py-2 border-b border-card-border overflow-x-auto">
+          <div className="flex items-center gap-1 min-w-0">
+            {/* Preview tab */}
             <button
               onClick={() => setActiveTab("preview")}
-              className={`px-3 py-1 text-sm rounded-md transition ${
+              className={`shrink-0 px-3 py-1.5 text-sm rounded-md transition ${
                 activeTab === "preview"
-                  ? "bg-background text-foreground shadow-sm"
+                  ? "bg-card-bg text-foreground shadow-sm"
                   : "text-muted hover:text-foreground"
               }`}
             >
               {dict.editor.preview}
             </button>
-            <button
-              onClick={() => setActiveTab("code")}
-              className={`px-3 py-1 text-sm rounded-md transition ${
-                activeTab === "code"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted hover:text-foreground"
-              }`}
-            >
-              {dict.editor.code}
-            </button>
+
+            {/* File tabs */}
+            {fileNames.map((name) => (
+              <button
+                key={name}
+                onClick={() => setActiveTab(name)}
+                className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition ${
+                  activeTab === name
+                    ? "bg-card-bg text-foreground shadow-sm"
+                    : "text-muted hover:text-foreground"
+                }`}
+              >
+                <span className={`text-xs font-bold ${getFileColor(name)}`}>
+                  {getFileIcon(name)}
+                </span>
+                {name}
+              </button>
+            ))}
           </div>
-          <div className="flex items-center gap-2">
+
+          <div className="flex items-center gap-2 shrink-0 ml-2">
             {publishedUrl && (
               <a
                 href={publishedUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xs text-accent hover:underline truncate max-w-[200px]"
+                className="text-xs text-accent hover:underline truncate max-w-50"
               >
                 {publishedUrl}
               </a>
             )}
             <button
               onClick={handlePublish}
-              disabled={!html || publishing}
-              className={`rounded-lg px-4 py-2 text-sm font-medium text-white transition disabled:opacity-50 ${
+              disabled={!hasFiles || publishing}
+              className={`rounded-lg px-4 py-1.5 text-sm font-medium text-white transition disabled:opacity-50 ${
                 publishedUrl
                   ? "bg-success hover:bg-success/80"
                   : "bg-accent hover:bg-accent-dark"
@@ -343,10 +466,10 @@ export default function SiteEditor({
         {/* Content area */}
         <div className="flex-1 min-h-0">
           {activeTab === "preview" ? (
-            html ? (
+            previewHtml ? (
               <iframe
                 ref={iframeRef}
-                srcDoc={html}
+                srcDoc={previewHtml}
                 className="w-full h-full bg-white"
                 sandbox="allow-scripts allow-same-origin"
                 title="Preview"
@@ -356,13 +479,17 @@ export default function SiteEditor({
                 <p>{dict.editor.placeholder}</p>
               </div>
             )
-          ) : (
+          ) : files[activeTab] !== undefined ? (
             <textarea
-              value={html}
-              onChange={(e) => setHtml(e.target.value)}
+              value={files[activeTab]}
+              onChange={(e) => updateFile(activeTab, e.target.value)}
               className="w-full h-full code-editor bg-card-bg p-4 text-foreground focus:outline-none"
               spellCheck={false}
             />
+          ) : (
+            <div className="flex items-center justify-center h-full text-muted">
+              <p>Select a file</p>
+            </div>
           )}
         </div>
       </div>

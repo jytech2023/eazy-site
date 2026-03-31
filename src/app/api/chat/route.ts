@@ -6,25 +6,40 @@ const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
 });
 
-const SYSTEM_PROMPT = `You are an expert web developer and designer. The user will describe what website they want, and you will generate a complete, beautiful, responsive HTML page.
+const SYSTEM_PROMPT = `You are an expert web developer and designer. The user will describe what website they want, and you will generate a multi-file static website.
+
+Output format - use labeled code blocks for each file:
+
+\`\`\`html filename=index.html
+<!DOCTYPE html>
+...
+\`\`\`
+
+\`\`\`css filename=style.css
+...
+\`\`\`
+
+\`\`\`js filename=script.js
+...
+\`\`\`
 
 Rules:
-- Always output a complete HTML document starting with <!DOCTYPE html>
-- Use modern CSS (flexbox, grid, gradients, shadows) for beautiful design
+- Always output at least index.html and style.css as separate files
+- The HTML file should link to style.css via <link rel="stylesheet" href="style.css">
+- If JavaScript is needed, put it in script.js and link via <script src="script.js"></script>
+- Use modern CSS (flexbox, grid, gradients, shadows, custom properties) for beautiful design
 - Make the page fully responsive (mobile-first approach)
 - Use a cohesive color scheme and professional typography
 - Include meta viewport tag for mobile support
-- Use inline CSS in a <style> tag (no external CSS files)
-- You can use Google Fonts via CDN link
+- You can use Google Fonts via CDN link in the HTML
 - Make the design modern, clean, and visually appealing
-- If the user provides modifications to an existing page, apply the changes to the current HTML
-- Wrap the HTML output in \`\`\`html code blocks
-- Keep explanations brief, focus on delivering the HTML code
-- If the user asks for changes, modify the provided current HTML accordingly`;
+- When the user asks for changes, output ALL files (even unchanged ones) so they stay in sync
+- Keep explanations brief, focus on delivering the code
+- You may add more files if needed (e.g. about.html, contact.html)`;
 
 export async function POST(request: Request) {
   const body = await request.json();
-  const { prompt, currentHtml, history } = body;
+  const { prompt, files, history } = body;
 
   // Determine user's plan and model
   let modelId = PLANS.free.model;
@@ -33,16 +48,15 @@ export async function POST(request: Request) {
     try {
       const { auth0 } = await import("@/lib/auth0");
       const session = await auth0.getSession();
-      if (session?.user) {
+      if (session?.user?.email) {
         const { db } = await import("@/lib/db");
         const { users } = await import("@/lib/schema");
         const { eq } = await import("drizzle-orm");
 
-        const auth0Id = session.user.sub as string;
         const [dbUser] = await db
           .select()
           .from(users)
-          .where(eq(users.auth0Id, auth0Id))
+          .where(eq(users.email, session.user.email as string))
           .limit(1);
         if (dbUser) {
           const plan = (dbUser.plan || "free") as PlanKey;
@@ -68,10 +82,16 @@ export async function POST(request: Request) {
     }
   }
 
-  // Build user message
+  // Build user message with current files
   let userContent = prompt;
-  if (currentHtml) {
-    userContent = `Current HTML:\n\`\`\`html\n${currentHtml}\n\`\`\`\n\nUser request: ${prompt}`;
+  if (files && Object.keys(files).length > 0) {
+    const fileList = Object.entries(files as Record<string, string>)
+      .map(([name, content]) => {
+        const ext = name.split(".").pop();
+        return `\`\`\`${ext} filename=${name}\n${content}\n\`\`\``;
+      })
+      .join("\n\n");
+    userContent = `Current files:\n${fileList}\n\nUser request: ${prompt}`;
   }
   messages.push({ role: "user", content: userContent });
 

@@ -11,74 +11,63 @@ function generateSlug(): string {
   return slug;
 }
 
-async function writeStaticFile(
+async function writeSiteFiles(
   username: string,
   slug: string,
-  html: string
+  files: Record<string, string>
 ): Promise<string> {
-  const dir = path.join(process.cwd(), "public", "sites", username);
+  const dir = path.join(process.cwd(), "public", "sites", username, slug);
   await mkdir(dir, { recursive: true });
-  const filePath = path.join(dir, `${slug}.html`);
-  await writeFile(filePath, html, "utf-8");
-  return `/sites/${username}/${slug}.html`;
+
+  for (const [filename, content] of Object.entries(files)) {
+    // Sanitize filename to prevent path traversal
+    const safeName = path.basename(filename);
+    const filePath = path.join(dir, safeName);
+    await writeFile(filePath, content, "utf-8");
+  }
+
+  return `/sites/${username}/${slug}/index.html`;
 }
 
 // Try to get the logged-in username, returns null for anonymous
 async function getUsername(): Promise<string | null> {
-  // Only attempt auth if DB is configured
-  if (!process.env.DATABASE_URL) return null;
-
   try {
     const { auth0 } = await import("@/lib/auth0");
     const session = await auth0.getSession();
-    if (!session) return null;
+    if (!session?.user) return null;
 
-    const { db } = await import("@/lib/db");
-    const { users } = await import("@/lib/schema");
-    const { eq } = await import("drizzle-orm");
+    const username =
+      (session.user.nickname as string) ||
+      (session.user.email as string)?.split("@")[0] ||
+      `user${Date.now()}`;
 
-    const auth0Id = session.user.sub as string;
-    let [dbUser] = await db
-      .select()
-      .from(users)
-      .where(eq(users.auth0Id, auth0Id))
-      .limit(1);
-
-    if (!dbUser) {
-      const username =
-        (session.user.nickname as string) ||
-        (session.user.email as string)?.split("@")[0] ||
-        `user${Date.now()}`;
-      [dbUser] = await db
-        .insert(users)
-        .values({
-          auth0Id,
-          email: (session.user.email as string) || null,
-          name: (session.user.name as string) || null,
-          username,
-          avatar: (session.user.picture as string) || null,
-        })
-        .returning();
-    }
-
-    return dbUser.username;
+    return username;
   } catch {
     return null;
   }
 }
 
 export async function POST(request: Request) {
-  const { html, title } = await request.json();
+  const body = await request.json();
+  const { files, html, title } = body;
 
-  if (!html) {
-    return NextResponse.json({ error: "No HTML content" }, { status: 400 });
+  // Support both multi-file and legacy single-html
+  const siteFiles: Record<string, string> =
+    files && Object.keys(files).length > 0
+      ? files
+      : html
+        ? { "index.html": html }
+        : {};
+
+  if (Object.keys(siteFiles).length === 0) {
+    return NextResponse.json({ error: "No content" }, { status: 400 });
   }
 
   const slug = generateSlug();
   const username = (await getUsername()) || "anonymous";
 
-  // Write static HTML file
-  const url = await writeStaticFile(username, slug, html);
+  // Write all static files
+  const url = await writeSiteFiles(username, slug, siteFiles);
 
   // Optionally persist to DB if configured
   if (process.env.DATABASE_URL) {
@@ -89,14 +78,14 @@ export async function POST(request: Request) {
       await db.insert(sites).values({
         title: title || "Untitled",
         slug,
-        htmlContent: html,
+        htmlContent: JSON.stringify(siteFiles),
         published: true,
         isAnonymous: username === "anonymous",
         userId: null,
         sessionId: null,
       });
     } catch {
-      // DB not available, static file still works
+      // DB not available, static files still work
     }
   }
 

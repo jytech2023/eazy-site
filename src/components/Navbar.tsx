@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useUser } from "@auth0/nextjs-auth0/client";
 import { useState } from "react";
 import LanguageSwitcher from "./LanguageSwitcher";
 
@@ -16,14 +15,21 @@ type Dict = {
   };
 };
 
+type User = {
+  name?: string | null;
+  picture?: string | null;
+  email?: string | null;
+} | null;
+
 export default function Navbar({
   locale,
   dict,
+  user,
 }: {
   locale: string;
   dict: Dict;
+  user: User;
 }) {
-  const { user, isLoading } = useUser();
   const [menuOpen, setMenuOpen] = useState(false);
 
   return (
@@ -67,9 +73,7 @@ export default function Navbar({
               {dict.nav.pricing}
             </Link>
             <LanguageSwitcher locale={locale} />
-            {isLoading ? (
-              <div className="h-8 w-20 animate-pulse rounded bg-card-bg" />
-            ) : user ? (
+            {user ? (
               <div className="flex items-center gap-3">
                 {user.picture && (
                   <img
@@ -170,7 +174,7 @@ export default function Navbar({
           ) : (
             <a
               href="/auth/login"
-              className="block rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white text-center"
+              className="block w-full rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white text-center"
             >
               {dict.nav.login}
             </a>

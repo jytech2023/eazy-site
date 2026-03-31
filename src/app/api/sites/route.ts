@@ -6,25 +6,27 @@ import { eq, and } from "drizzle-orm";
 import { unlink } from "fs/promises";
 import path from "path";
 
-// Helper to get or create user
+// Helper to get or create user from Auth0 session
 async function getDbUser(session: { user: { sub: string; email?: string; name?: string; picture?: string; nickname?: string } }) {
-  const auth0Id = session.user.sub;
+  const email = session.user.email;
+  if (!email) return null;
+
   let [dbUser] = await db
     .select()
     .from(users)
-    .where(eq(users.auth0Id, auth0Id))
+    .where(eq(users.email, email))
     .limit(1);
 
   if (!dbUser) {
     const username =
       session.user.nickname ||
-      session.user.email?.split("@")[0] ||
+      email.split("@")[0] ||
       `user${Date.now()}`;
     [dbUser] = await db
       .insert(users)
       .values({
-        auth0Id,
-        email: session.user.email || null,
+        auth0Id: session.user.sub,
+        email,
         name: session.user.name || null,
         username,
         avatar: session.user.picture || null,
@@ -37,13 +39,17 @@ async function getDbUser(session: { user: { sub: string; email?: string; name?: 
 // GET: List user's sites or get a single site
 export async function GET(request: Request) {
   const session = await auth0.getSession();
-  if (!session) {
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const dbUser = await getDbUser(session);
+  if (!dbUser) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const url = new URL(request.url);
   const siteId = url.searchParams.get("id");
-  const dbUser = await getDbUser(session);
 
   if (siteId) {
     const [site] = await db
@@ -70,13 +76,17 @@ export async function GET(request: Request) {
 // PATCH: Update a site
 export async function PATCH(request: Request) {
   const session = await auth0.getSession();
-  if (!session) {
+  if (!session?.user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const dbUser = await getDbUser(session);
+  if (!dbUser) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const body = await request.json();
   const { id, ...updates } = body;
-  const dbUser = await getDbUser(session);
 
   const [updated] = await db
     .update(sites)
@@ -106,7 +116,7 @@ export async function PATCH(request: Request) {
 // DELETE: Delete a site
 export async function DELETE(request: Request) {
   const session = await auth0.getSession();
-  if (!session) {
+  if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -117,8 +127,10 @@ export async function DELETE(request: Request) {
   }
 
   const dbUser = await getDbUser(session);
+  if (!dbUser) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-  // Get site info before deleting to remove static file
   const [site] = await db
     .select()
     .from(sites)
@@ -127,7 +139,6 @@ export async function DELETE(request: Request) {
 
   if (site) {
     await db.delete(sites).where(eq(sites.id, site.id));
-    // Remove static file
     try {
       const filePath = path.join(
         process.cwd(),

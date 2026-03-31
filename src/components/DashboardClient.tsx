@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useUser } from "@auth0/nextjs-auth0/client";
 import Link from "next/link";
 
 type Site = {
@@ -40,20 +39,33 @@ export default function DashboardClient({
   locale: string;
   dict: Dict;
 }) {
-  const { user, isLoading } = useUser();
+  const [user, setUser] = useState<{ name?: string; email?: string } | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [sites, setSites] = useState<Site[]>([]);
   const [loadingSites, setLoadingSites] = useState(true);
   const [userPlan, setUserPlan] = useState("free");
 
   useEffect(() => {
+    fetch("/auth/profile")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => { if (data) setUser(data); })
+      .catch(() => {})
+      .finally(() => setIsLoading(false));
+  }, []);
+
+  useEffect(() => {
     if (!user) return;
     setLoadingSites(true);
     fetch("/api/sites")
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error("Failed");
+        return r.json();
+      })
       .then((data) => {
         setSites(data.sites || []);
         setUserPlan(data.plan || "free");
       })
+      .catch(() => {})
       .finally(() => setLoadingSites(false));
   }, [user]);
 

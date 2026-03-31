@@ -1,13 +1,10 @@
 import { NextResponse } from "next/server";
 import { auth0 } from "@/lib/auth0";
 import { getStripe, PLANS, type PlanKey } from "@/lib/stripe";
-import { db } from "@/lib/db";
-import { users } from "@/lib/schema";
-import { eq } from "drizzle-orm";
 
 export async function POST(request: Request) {
   const session = await auth0.getSession();
-  if (!session) {
+  if (!session?.user?.email) {
     return NextResponse.redirect(new URL("/auth/login", request.url));
   }
 
@@ -19,17 +16,11 @@ export async function POST(request: Request) {
   }
 
   const plan = PLANS[planKey];
-  const auth0Id = session.user.sub as string;
-  const [dbUser] = await db
-    .select()
-    .from(users)
-    .where(eq(users.auth0Id, auth0Id))
-    .limit(1);
 
   const checkoutSession = await getStripe().checkout.sessions.create({
     mode: "subscription",
     payment_method_types: ["card"],
-    customer_email: dbUser?.email || (session.user.email as string),
+    customer_email: session.user.email as string,
     line_items: [
       {
         price_data: {
@@ -45,11 +36,11 @@ export async function POST(request: Request) {
       },
     ],
     metadata: {
-      auth0Id,
+      email: session.user.email as string,
       planKey,
     },
-    success_url: `${process.env.APP_BASE_URL}/en/dashboard?upgraded=1`,
-    cancel_url: `${process.env.APP_BASE_URL}/en/pricing`,
+    success_url: `${process.env.APP_BASE_URL || "http://localhost:3000"}/en/dashboard?upgraded=1`,
+    cancel_url: `${process.env.APP_BASE_URL || "http://localhost:3000"}/en/pricing`,
   });
 
   return NextResponse.redirect(checkoutSession.url!, 303);

@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { hasLocale, locales } from "@/lib/i18n";
 import { getDictionary } from "@/lib/dictionaries";
+import { auth0 } from "@/lib/auth0";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import type { Metadata } from "next";
@@ -40,10 +41,14 @@ export default async function LocaleLayout({
   if (!hasLocale(locale)) notFound();
 
   const dict = await getDictionary(locale);
+  const session = await auth0.getSession();
+  const user = session?.user
+    ? { name: session.user.name, picture: session.user.picture, email: session.user.email }
+    : null;
 
   return (
     <>
-      <Navbar locale={locale} dict={dict} />
+      <Navbar locale={locale} dict={dict} user={user} />
       <main className="flex-1">{children}</main>
       <Footer dict={dict} />
     </>

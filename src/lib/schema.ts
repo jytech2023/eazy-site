@@ -9,8 +9,8 @@ import {
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
-  auth0Id: text("auth0_id").unique().notNull(),
-  email: text("email"),
+  auth0Id: text("auth0_id").unique(),
+  email: text("email").unique(),
   name: text("name"),
   username: text("username").unique(),
   avatar: text("avatar"),
