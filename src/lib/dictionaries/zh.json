@@ -1,0 +1,93 @@
+{
+  "meta": {
+    "title": "EasySite - AI 智能建站",
+    "description": "用 AI 即时创建精美网站，免费开始，无需编程。"
+  },
+  "nav": {
+    "home": "首页",
+    "dashboard": "我的网站",
+    "pricing": "定价",
+    "editor": "创建网站",
+    "login": "登录",
+    "logout": "退出"
+  },
+  "home": {
+    "heroTitle": "用 AI 建立你的网站",
+    "heroSubtitle": "描述你想要的网站，AI 为你创建。无需编程，免费开始。",
+    "ctaStart": "免费开始建站",
+    "ctaLogin": "登录管理网站",
+    "featureAI": "AI 驱动",
+    "featureAIDesc": "用自然语言描述你的网站，AI 来完成剩下的工作。",
+    "featureInstant": "即时发布",
+    "featureInstantDesc": "你的网站在几秒内上线，获得可分享的链接。",
+    "featureFree": "免费开始",
+    "featureFreeDesc": "免费创建最多 3 个网站。需要更多功能可升级。",
+    "featureManage": "轻松管理",
+    "featureManageDesc": "登录后可以随时管理、编辑和更新你的网站。",
+    "howTitle": "如何使用",
+    "step1": "描述你的网站",
+    "step1Desc": "告诉 AI 你想要什么样的网站——个人作品集、落地页、博客等。",
+    "step2": "AI 生成网站",
+    "step2Desc": "AI 在几秒内生成精美的响应式网站。",
+    "step3": "发布和分享",
+    "step3Desc": "一键发布你的网站，将链接分享给全世界。"
+  },
+  "editor": {
+    "title": "AI 建站工具",
+    "placeholder": "描述你想要建立的网站...",
+    "send": "生成",
+    "regenerate": "重新生成",
+    "publish": "发布",
+    "publishing": "发布中...",
+    "published": "已发布！",
+    "preview": "预览",
+    "code": "代码",
+    "newSite": "新建网站",
+    "loginToManage": "登录以管理你的网站",
+    "saveDraft": "保存草稿"
+  },
+  "dashboard": {
+    "title": "我的网站",
+    "empty": "你还没有创建任何网站。",
+    "createFirst": "创建你的第一个网站",
+    "published": "已发布",
+    "draft": "草稿",
+    "edit": "编辑",
+    "delete": "删除",
+    "view": "查看",
+    "unpublish": "取消发布",
+    "confirmDelete": "确定要删除这个网站吗？",
+    "plan": "套餐",
+    "sitesUsed": "个网站已使用"
+  },
+  "pricing": {
+    "title": "简单定价",
+    "subtitle": "免费开始，按需升级。",
+    "free": "免费版",
+    "pro": "专业版",
+    "unlimited": "无限版",
+    "month": "/月",
+    "current": "当前套餐",
+    "upgrade": "升级",
+    "features": {
+      "sites": "个网站",
+      "unlimitedSites": "无限网站",
+      "pages": "页面/网站",
+      "unlimitedPages": "无限页面",
+      "freeModel": "标准 AI 模型",
+      "proModel": "高级 AI 模型",
+      "unlimitedModel": "顶级 AI 模型",
+      "customDomain": "自定义域名（即将推出）",
+      "priority": "优先支持"
+    }
+  },
+  "footer": {
+    "copyright": "EasySite",
+    "tagline": "用 AI 建立网站"
+  },
+  "common": {
+    "loading": "加载中...",
+    "error": "出了点问题",
+    "retry": "重试"
+  }
+}

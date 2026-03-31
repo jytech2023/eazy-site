@@ -1,0 +1,93 @@
+{
+  "meta": {
+    "title": "EasySite - Build Websites with AI",
+    "description": "Create beautiful websites instantly using AI. Free to start, no coding required."
+  },
+  "nav": {
+    "home": "Home",
+    "dashboard": "My Sites",
+    "pricing": "Pricing",
+    "editor": "Create Site",
+    "login": "Log In",
+    "logout": "Log Out"
+  },
+  "home": {
+    "heroTitle": "Build Your Website with AI",
+    "heroSubtitle": "Describe what you want, and AI creates it for you. No coding needed. Free to start.",
+    "ctaStart": "Start Building Free",
+    "ctaLogin": "Log In to Manage Sites",
+    "featureAI": "AI-Powered",
+    "featureAIDesc": "Describe your site in plain language, AI handles the rest.",
+    "featureInstant": "Instant Publish",
+    "featureInstantDesc": "Your site goes live with a shareable URL in seconds.",
+    "featureFree": "Free to Start",
+    "featureFreeDesc": "Build up to 3 sites for free. Upgrade for more features.",
+    "featureManage": "Easy Management",
+    "featureManageDesc": "Log in to manage, edit, and update your sites anytime.",
+    "howTitle": "How It Works",
+    "step1": "Describe Your Site",
+    "step1Desc": "Tell AI what kind of website you want — a portfolio, landing page, blog, and more.",
+    "step2": "AI Builds It",
+    "step2Desc": "Our AI generates a beautiful, responsive website in seconds.",
+    "step3": "Publish & Share",
+    "step3Desc": "Publish your site with one click and share the URL with the world."
+  },
+  "editor": {
+    "title": "AI Site Builder",
+    "placeholder": "Describe the website you want to build...",
+    "send": "Generate",
+    "regenerate": "Regenerate",
+    "publish": "Publish",
+    "publishing": "Publishing...",
+    "published": "Published!",
+    "preview": "Preview",
+    "code": "Code",
+    "newSite": "New Site",
+    "loginToManage": "Log in to manage your sites",
+    "saveDraft": "Save Draft"
+  },
+  "dashboard": {
+    "title": "My Sites",
+    "empty": "You haven't created any sites yet.",
+    "createFirst": "Create Your First Site",
+    "published": "Published",
+    "draft": "Draft",
+    "edit": "Edit",
+    "delete": "Delete",
+    "view": "View",
+    "unpublish": "Unpublish",
+    "confirmDelete": "Are you sure you want to delete this site?",
+    "plan": "Plan",
+    "sitesUsed": "sites used"
+  },
+  "pricing": {
+    "title": "Simple Pricing",
+    "subtitle": "Start free, upgrade when you need more.",
+    "free": "Free",
+    "pro": "Pro",
+    "unlimited": "Unlimited",
+    "month": "/month",
+    "current": "Current Plan",
+    "upgrade": "Upgrade",
+    "features": {
+      "sites": "sites",
+      "unlimitedSites": "Unlimited sites",
+      "pages": "pages per site",
+      "unlimitedPages": "Unlimited pages",
+      "freeModel": "Standard AI model",
+      "proModel": "Advanced AI model",
+      "unlimitedModel": "Premium AI model",
+      "customDomain": "Custom domain (coming soon)",
+      "priority": "Priority support"
+    }
+  },
+  "footer": {
+    "copyright": "EasySite",
+    "tagline": "Build websites with AI"
+  },
+  "common": {
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "retry": "Try Again"
+  }
+}
