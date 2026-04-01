@@ -68,14 +68,19 @@ export async function POST(request: Request) {
     }
   }
 
-  // Anonymous sites are always public; logged-in users can save as draft
   const shouldPublish = username === "anonymous" ? true : !draft;
 
   let savedSiteId: number;
   let slug: string;
 
+  // Check if R2 is available
+  const { isR2Configured, uploadSiteToR2 } = await import("@/lib/r2");
+  const useR2 = isR2Configured();
+
+  // R2 is primary storage; DB stores files only as fallback when R2 is not configured
+  const dbContent = useR2 ? "{}" : JSON.stringify(siteFiles);
+
   try {
-    // Update existing site if siteId provided
     if (siteId) {
       const numericId = Number(siteId);
       const conditions = dbUser
@@ -89,11 +94,13 @@ export async function POST(request: Request) {
         .limit(1);
 
       if (existing) {
+        // Don't overwrite existing content with empty — protect against race conditions
+        const hasContent = Object.keys(siteFiles).length > 0 && dbContent !== "{}";
         await db
           .update(sites)
           .set({
             title: title || existing.title,
-            htmlContent: JSON.stringify(siteFiles),
+            ...(hasContent ? { htmlContent: dbContent } : {}),
             published: shouldPublish,
             updatedAt: new Date(),
           })
@@ -102,14 +109,13 @@ export async function POST(request: Request) {
         savedSiteId = existing.id;
         slug = existing.slug;
       } else {
-        // Site not found or not owned — create new
         slug = generateSlug();
         const [inserted] = await db
           .insert(sites)
           .values({
             title: title || "Untitled",
             slug,
-            htmlContent: JSON.stringify(siteFiles),
+            htmlContent: dbContent,
             published: shouldPublish,
             isAnonymous: username === "anonymous",
             userId: dbUser?.id ?? null,
@@ -119,21 +125,34 @@ export async function POST(request: Request) {
         savedSiteId = inserted.id;
       }
     } else {
-      // New site
       slug = generateSlug();
       const [inserted] = await db
         .insert(sites)
         .values({
           title: title || "Untitled",
           slug,
-          htmlContent: JSON.stringify(siteFiles),
-          published: true,
+          htmlContent: dbContent,
+          published: shouldPublish,
           isAnonymous: username === "anonymous",
           userId: dbUser?.id ?? null,
           sessionId: null,
         })
         .returning();
       savedSiteId = inserted.id;
+    }
+
+    // Upload files to R2 — if this fails, fall back to storing in DB
+    if (useR2) {
+      try {
+        await uploadSiteToR2(slug, siteFiles);
+      } catch (r2Err) {
+        console.error("R2 upload failed, storing in DB instead:", r2Err);
+        // R2 failed — update DB with actual file content
+        await db
+          .update(sites)
+          .set({ htmlContent: JSON.stringify(siteFiles) })
+          .where(eq(sites.id, savedSiteId));
+      }
     }
   } catch (err) {
     console.error("Failed to publish site:", err);
@@ -145,10 +164,9 @@ export async function POST(request: Request) {
 
   const siteUrl = `/s/${username}/${slug}`;
 
-  // Deploy to Cloudflare Pages if site has a project and user has credentials
+  // Deploy to Cloudflare Pages if configured
   let cfDeployUrl: string | null = null;
   if (dbUser?.cfApiToken && dbUser?.cfAccountId) {
-    // Get the site's CF project
     const [savedSite] = await db
       .select()
       .from(sites)

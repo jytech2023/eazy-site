@@ -69,16 +69,23 @@ export async function GET(
     return new Response("Not Found", { status: 404 });
   }
 
-  // Parse stored files
+  // Get file from R2 first, fallback to DB
   let fileContent: string | undefined;
 
-  try {
-    const filesMap = JSON.parse(site.htmlContent) as Record<string, string>;
-    fileContent = filesMap[filename];
-  } catch {
-    // Legacy format: htmlContent is raw HTML
-    if (filename === "index.html") {
-      fileContent = site.htmlContent;
+  const { isR2Configured, getFileFromR2 } = await import("@/lib/r2");
+  if (isR2Configured()) {
+    const r2File = await getFileFromR2(site.slug, filename);
+    if (r2File) fileContent = r2File.content;
+  }
+
+  if (fileContent === undefined) {
+    try {
+      const filesMap = JSON.parse(site.htmlContent) as Record<string, string>;
+      fileContent = filesMap[filename];
+    } catch {
+      if (filename === "index.html" && site.htmlContent) {
+        fileContent = site.htmlContent;
+      }
     }
   }
 

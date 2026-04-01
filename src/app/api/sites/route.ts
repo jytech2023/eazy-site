@@ -52,13 +52,20 @@ export async function GET(request: Request) {
       return NextResponse.json({ site: null });
     }
 
-    // Parse files from JSON content
+    // Get files from R2 first, fallback to DB
     let files: Record<string, string> = {};
-    try {
-      files = JSON.parse(site.htmlContent);
-    } catch {
-      if (site.htmlContent) {
-        files = { "index.html": site.htmlContent };
+    const { isR2Configured, getSiteFilesFromR2 } = await import("@/lib/r2");
+    if (isR2Configured()) {
+      const r2Files = await getSiteFilesFromR2(site.slug);
+      if (r2Files) files = r2Files;
+    }
+    if (Object.keys(files).length === 0) {
+      try {
+        files = JSON.parse(site.htmlContent);
+      } catch {
+        if (site.htmlContent) {
+          files = { "index.html": site.htmlContent };
+        }
       }
     }
 
@@ -69,6 +76,7 @@ export async function GET(request: Request) {
         title: site.title,
         published: site.published,
         isAnonymous: site.isAnonymous,
+        forkedFrom: site.forkedFrom,
         username: dbUser?.username || "anonymous",
         files,
         createdAt: site.createdAt.toISOString(),
@@ -80,7 +88,9 @@ export async function GET(request: Request) {
   const formatted = userSites.map((s) => {
     let fileNames: string[] = [];
     try {
-      fileNames = Object.keys(JSON.parse(s.htmlContent));
+      const parsed = JSON.parse(s.htmlContent);
+      const keys = Object.keys(parsed);
+      fileNames = keys.length > 0 ? keys : ["index.html"];
     } catch {
       fileNames = ["index.html"];
     }
@@ -90,6 +100,7 @@ export async function GET(request: Request) {
       title: s.title,
       published: s.published,
       isAnonymous: s.isAnonymous,
+      forkedFrom: s.forkedFrom,
       username: dbUser?.username || "anonymous",
       files: fileNames,
       cfPagesProject: s.cfPagesProject || null,

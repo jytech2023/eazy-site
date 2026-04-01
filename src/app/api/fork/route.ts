@@ -74,26 +74,40 @@ export async function POST(request: Request) {
     .values({
       title: `${source.title} (fork)`,
       slug,
-      htmlContent: source.htmlContent,
-      published: false,
+      htmlContent: "{}",
+      published: isAnonymous, // anonymous sites are always public
       isAnonymous,
       userId,
       sessionId: null,
+      forkedFrom: source.id,
     })
     .returning();
 
-  // Parse files to return directly (so editor doesn't need a second fetch)
+  // Get files from R2 first, fallback to DB
   let files: Record<string, string> = {};
-  try {
-    files = JSON.parse(source.htmlContent);
-  } catch {
-    files = { "index.html": source.htmlContent };
+  const { isR2Configured, getSiteFilesFromR2, uploadSiteToR2 } = await import("@/lib/r2");
+  if (isR2Configured()) {
+    const r2Files = await getSiteFilesFromR2(source.slug);
+    if (r2Files) files = r2Files;
+  }
+  if (Object.keys(files).length === 0) {
+    try {
+      files = JSON.parse(source.htmlContent);
+    } catch {
+      if (source.htmlContent) files = { "index.html": source.htmlContent };
+    }
+  }
+
+  // Upload forked files to R2 under the new slug
+  if (isR2Configured() && Object.keys(files).length > 0) {
+    await uploadSiteToR2(slug, files);
   }
 
   return NextResponse.json({
     siteId: forked.id,
     slug: forked.slug,
     title: forked.title,
+    forkedFrom: source.id,
     files,
   });
 }

@@ -8,6 +8,8 @@ import LanguageSwitcher from "./LanguageSwitcher";
 import ThemeToggle from "./ThemeToggle";
 
 const WebContainerPreview = lazy(() => import("./WebContainerPreview"));
+const TerminalComponent = lazy(() => import("./Terminal"));
+const CodeEditorComponent = lazy(() => import("./CodeEditor"));
 
 type Dict = {
   editor: {
@@ -117,6 +119,47 @@ function parseFiles(response: string): Files {
   }
 
   return files;
+}
+
+// Detect if AI is requesting file contents (mini RAG: AI asks → we auto-reply with files)
+function detectFileRequests(response: string, currentFiles: Files): string[] {
+  const fileNames = Object.keys(currentFiles);
+  if (fileNames.length === 0) return [];
+
+  // Strip think blocks before checking
+  const cleaned = stripThinkBlocks(response);
+
+  // Check if response is asking for files
+  const askingPatterns = /\b(please (share|provide|copy|paste|send|show)|need (the |to see |to read )?(full |complete )?(content|code|source|file)|can you (share|provide|send|show)|copy and paste|provide (the |them|me ))/i;
+  if (!askingPatterns.test(cleaned)) return [];
+
+  // Find which files are mentioned
+  const requested: string[] = [];
+  for (const name of fileNames) {
+    const basename = name.split("/").pop()!;
+    const nameNoExt = basename.replace(/\.\w+$/, "");
+    if (cleaned.includes(basename) || cleaned.includes(name)) {
+      requested.push(name);
+    } else if (nameNoExt.length > 3 && cleaned.includes(nameNoExt)) {
+      requested.push(name);
+    }
+  }
+
+  // If AI is asking for files AND also generated some code, still provide the files
+  // (AI might have done partial work and needs more context)
+  return requested;
+}
+
+// Detect ```bash command blocks in AI response for execution approval
+function parseCommandBlocks(response: string): string[] {
+  const commands: string[] = [];
+  const regex = /```(?:bash|sh|shell)\s+command\n([\s\S]*?)```/g;
+  let match;
+  while ((match = regex.exec(response)) !== null) {
+    const cmd = match[1].trim();
+    if (cmd) commands.push(cmd);
+  }
+  return commands;
 }
 
 // Count how many files are still being streamed (opened but not closed)
@@ -279,6 +322,11 @@ export default function SiteEditor({
   const [editingTaskId, setEditingTaskId] = useState<string | null>(null);
   const [pendingFileCount, setPendingFileCount] = useState(0);
   const [leftPanel, setLeftPanel] = useState<"chat" | "files">("chat");
+  const [terminalOpen, setTerminalOpen] = useState(false);
+  const [autoSaveEnabled, setAutoSaveEnabled] = useState(false);
+  const [renamingFile, setRenamingFile] = useState<string | null>(null);
+  const [serverLogs, setServerLogs] = useState<string[]>([]);
+  const [pendingCommands, setPendingCommands] = useState<{ id: string; command: string; status: "pending" | "running" | "done" | "skipped"; output?: string }[]>([]);
   const [openTabs, setOpenTabs] = useState<Set<string>>(new Set());
   const [containerStatus, setContainerStatus] = useState<{ status: string; url: string | null }>({ status: "idle", url: null });
   const [buildStatus, setBuildStatus] = useState<"idle" | "building" | "success" | "failed" | "saving">("idle");
@@ -296,6 +344,28 @@ export default function SiteEditor({
   const fileNames = useMemo(() => Object.keys(files), [files]);
   const hasFiles = fileNames.length > 0;
   const previewHtml = useMemo(() => buildPreviewHtml(files), [files]);
+
+  // Refresh: sync files from WebContainer filesystem + reload preview
+  const handleRefresh = useCallback(async () => {
+    if (files["package.json"]) {
+      try {
+        const { readAllFiles } = await import("./WebContainerPreview");
+        const containerFiles = await readAllFiles();
+        if (containerFiles) {
+          setFiles(containerFiles);
+          setOpenTabs((prev) => {
+            const next = new Set<string>();
+            prev.forEach((t) => { if (containerFiles[t] !== undefined) next.add(t); });
+            return next;
+          });
+          setActiveTab((prev) => prev !== "preview" && containerFiles[prev] === undefined ? "preview" : prev);
+        }
+      } catch {}
+    }
+    if (iframeRef.current) {
+      iframeRef.current.contentWindow?.location.reload();
+    }
+  }, [files]);
 
   // Hide shared Navbar and Footer — editor has its own built-in nav
   useEffect(() => {
@@ -338,16 +408,45 @@ export default function SiteEditor({
       } catch {}
     }
 
-    // Otherwise fetch from API
-    fetch(`/api/sites?id=${siteId}`)
-      .then((r) => {
-        if (!r.ok) throw new Error("Failed");
-        return r.json();
-      })
+    // Fetch from API — try public endpoint first (avoids 401 noise), then authenticated
+    const loadSite = async () => {
+      let data = null;
+
+      // Try public gallery endpoint first (works for all published/anonymous sites)
+      try {
+        const r = await fetch(`/api/gallery/site?id=${siteId}`);
+        if (r.ok) {
+          const galleryData = await r.json();
+          if (galleryData.files && Object.keys(galleryData.files).length > 0) {
+            data = { site: { files: galleryData.files, id: galleryData.id } };
+          }
+        }
+      } catch {}
+
+      // Fall back to authenticated endpoint (for user's own unpublished sites)
+      if (!data?.site) {
+        try {
+          const r = await fetch(`/api/sites?id=${siteId}`);
+          if (r.ok) {
+            data = await r.json();
+          }
+        } catch {}
+      }
+
+      return data;
+    };
+
+    loadSite()
       .then((data) => {
-        if (data.site?.files && typeof data.site.files === "object" && !Array.isArray(data.site.files)) {
-          setFiles(data.site.files);
-        } else if (data.site?.htmlContent) {
+        if (data?.site?.files && typeof data.site.files === "object" && !Array.isArray(data.site.files)) {
+          // Filter out build artifacts (dist/) and lock files — editor only needs source
+          const sourceFiles: Record<string, string> = {};
+          for (const [name, content] of Object.entries(data.site.files as Record<string, string>)) {
+            if (name.startsWith("dist/") || name === "package-lock.json") continue;
+            sourceFiles[name] = content;
+          }
+          setFiles(sourceFiles);
+        } else if (data?.site?.htmlContent) {
           setFiles({ "index.html": data.site.htmlContent });
         }
         if (data.site) setCurrentSiteId(data.site.id.toString());
@@ -444,7 +543,11 @@ export default function SiteEditor({
         body: JSON.stringify({
           prompt: currentPrompt,
           model: selectedModel,
-          files: hasFiles ? files : undefined,
+          files: hasFiles ? Object.fromEntries(
+            Object.entries(files).filter(([name]) =>
+              !name.startsWith("dist/") && name !== "package-lock.json"
+            )
+          ) : undefined,
           activeFile: activeTab !== "preview" ? activeTab : undefined,
           siteId: currentSiteId,
           history: chatHistory.slice(-8),
@@ -464,28 +567,51 @@ export default function SiteEditor({
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
       let fullResponse = "";
-      let lastCommittedCount = 0; // Track how many files we've committed
+      let lastCommittedCount = 0;
+      let lastChunkTime = Date.now();
+      let dotCount = 0;
+
+      // Show activity indicator immediately — AI may be reading files via tools before generating text
+      if (hasFiles) {
+        setStreamingContent("*Analyzing project files...*");
+      }
+
+      // Animate the activity indicator while waiting for text
+      const toolActivityTimer = setInterval(() => {
+        if (!fullResponse.trim()) {
+          dotCount = (dotCount + 1) % 4;
+          const dots = ".".repeat(dotCount + 1);
+          const elapsed = Math.floor((Date.now() - lastChunkTime) / 1000);
+          setStreamingContent(
+            elapsed > 5
+              ? `*Reading and analyzing files${dots} (${elapsed}s)*`
+              : `*Analyzing project files${dots}*`
+          );
+        }
+      }, 800);
 
       while (reader) {
         const { done, value } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
         fullResponse += chunk;
+        lastChunkTime = Date.now();
         setStreamingContent(fullResponse);
 
-        // Only commit fully-closed files during streaming (not half-written ones)
+        // Only commit fully-closed files during streaming
         const completeParsed = parseFiles(fullResponse);
         const completeCount = Object.keys(completeParsed).length;
         const inProgress = countInProgressFiles(fullResponse);
         setPendingFileCount(inProgress);
 
-        // Commit new complete files as they finish (not mid-write)
         if (completeCount > lastCommittedCount) {
           const merged = mergeFiles(existingFiles, completeParsed);
           setFiles(merged);
           lastCommittedCount = completeCount;
         }
       }
+
+      clearInterval(toolActivityTimer);
 
       // Final parse, extract inline assets, and merge all files
       setPendingFileCount(0);
@@ -500,16 +626,52 @@ export default function SiteEditor({
       // Detect truncated output (inspired by Claude-Code's max_output_tokens recovery)
       const wasTruncated = detectTruncation(fullResponse);
 
+      // Detect if AI is requesting file contents instead of generating code
+      // Use current files state (not snapshot) so newly loaded files are available
+      const currentFilesForRAG = { ...existingFiles, ...parseFiles(fullResponse) };
+      const requestedFiles = detectFileRequests(fullResponse, currentFilesForRAG);
+
+      // Detect command blocks in AI response
+      const commands = parseCommandBlocks(fullResponse);
+      if (commands.length > 0 && files["package.json"]) {
+        setPendingCommands(commands.map((cmd) => ({
+          id: crypto.randomUUID(),
+          command: cmd,
+          status: "pending" as const,
+        })));
+      }
+
       setStreamingContent("");
       setChatHistory((prev) => [
         ...prev,
         { role: "assistant", content: fullResponse + (wasTruncated ? "\n\n⚠️ *Output truncated — auto-continuing...*" : "") },
       ]);
 
-      // Auto-save after each turn (draft for logged-in, publish for anonymous)
+      // Always save after AI generation (this is critical — not gated by autoSaveEnabled)
       const finalFiles = mergeFiles(existingFiles, finalParsed);
       if (Object.keys(finalParsed).length > 0) {
         autoSave(finalFiles);
+      }
+
+      // If AI requested files, auto-reply with their contents (mini RAG)
+      if (requestedFiles.length > 0 && autoContRef.current < 5) {
+        autoContRef.current++;
+        const fileContents = requestedFiles
+          .map((name) => {
+            const content = currentFilesForRAG[name];
+            if (!content) return null;
+            const ext = name.split(".").pop();
+            return `\`\`\`${ext} filename=${name}\n${content}\n\`\`\``;
+          })
+          .filter(Boolean)
+          .join("\n\n");
+
+        if (fileContents) {
+          const autoReply = `Here are the requested files:\n\n${fileContents}\n\nPlease proceed with the changes now.`;
+          pendingAutoContRef.current = false;
+          setTimeout(() => handleGenerate(autoReply), 500);
+          return; // Skip truncation auto-continue — file request takes priority
+        }
       }
 
       // Auto-continue if output was truncated (max 2 continuations to prevent loops)
@@ -594,14 +756,16 @@ export default function SiteEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [files, currentSiteId, user, buildStatus]);
 
-  // Auto-build when WebContainer becomes ready (after boot/file change)
+  // Build once when WebContainer first becomes ready (5 min cooldown)
+  const hasBuiltOnceRef = useRef(false);
   useEffect(() => {
-    if (containerStatus.status === "ready" && files["package.json"] && buildStatus === "idle") {
-      // Delay slightly to let dev server stabilize
-      const timer = setTimeout(() => runBuildAndSave(), 2000);
+    if (containerStatus.status === "ready" && files["package.json"] && !hasBuiltOnceRef.current) {
+      hasBuiltOnceRef.current = true;
+      const timer = setTimeout(() => runBuildAndSave(), 5 * 60 * 1000);
       return () => clearTimeout(timer);
     }
-  }, [containerStatus.status, files, buildStatus, runBuildAndSave]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [containerStatus.status]);
 
   // Auto-save after each generation turn (fire-and-forget)
   // Anonymous: saves as published (public). Logged-in: saves as draft (private).
@@ -667,8 +831,112 @@ export default function SiteEditor({
     window.history.replaceState(null, "", `/${locale}/editor`);
   };
 
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Run a pending command in WebContainer
+  const handleRunCommand = async (id: string) => {
+    setPendingCommands((prev) =>
+      prev.map((c) => c.id === id ? { ...c, status: "running" as const } : c)
+    );
+
+    const cmd = pendingCommands.find((c) => c.id === id);
+    if (!cmd) return;
+
+    try {
+      const { runCommand } = await import("./WebContainerPreview");
+      const result = await runCommand(cmd.command);
+      setPendingCommands((prev) =>
+        prev.map((c) => c.id === id ? {
+          ...c,
+          status: "done" as const,
+          output: result.output + (result.exitCode !== 0 ? `\n(exit code: ${result.exitCode})` : ""),
+        } : c)
+      );
+
+      // Add command result to chat so AI has context
+      setChatHistory((prev) => [
+        ...prev,
+        { role: "user", content: `[Command executed: \`${cmd.command}\`]\n\`\`\`\n${result.output.slice(0, 2000)}\n\`\`\`` },
+      ]);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed";
+      setPendingCommands((prev) =>
+        prev.map((c) => c.id === id ? { ...c, status: "done" as const, output: `Error: ${msg}` } : c)
+      );
+    }
+  };
+
+  const handleSkipCommand = (id: string) => {
+    setPendingCommands((prev) =>
+      prev.map((c) => c.id === id ? { ...c, status: "skipped" as const } : c)
+    );
+  };
+
+  const handleRunAllCommands = async () => {
+    for (const cmd of pendingCommands) {
+      if (cmd.status === "pending") {
+        await handleRunCommand(cmd.id);
+      }
+    }
+  };
+
+  const handleDismissCommands = () => {
+    setPendingCommands((prev) => prev.filter((c) => c.status !== "done" && c.status !== "skipped"));
+  };
+
+  const renameFile = (oldName: string, newName: string) => {
+    const trimmed = newName.trim();
+    if (!trimmed || trimmed === oldName || files[trimmed]) {
+      setRenamingFile(null);
+      return;
+    }
+    setFiles((prev) => {
+      const updated: Record<string, string> = {};
+      for (const [name, content] of Object.entries(prev)) {
+        updated[name === oldName ? trimmed : name] = content;
+      }
+      return updated;
+    });
+    // Update active tab and open tabs
+    if (activeTab === oldName) setActiveTab(trimmed);
+    setOpenTabs((prev) => {
+      if (!prev.has(oldName)) return prev;
+      const next = new Set(prev);
+      next.delete(oldName);
+      next.add(trimmed);
+      return next;
+    });
+    setRenamingFile(null);
+  };
+
+  const deleteFile = (name: string) => {
+    setFiles((prev) => {
+      const updated = { ...prev };
+      delete updated[name];
+      return updated;
+    });
+    if (activeTab === name) setActiveTab("preview");
+    setOpenTabs((prev) => {
+      const next = new Set(prev);
+      next.delete(name);
+      return next;
+    });
+  };
+
   const updateFile = (name: string, content: string) => {
-    setFiles((prev) => ({ ...prev, [name]: content }));
+    setFiles((prev) => {
+      const updated = { ...prev, [name]: content };
+
+      // Debounced auto-save: save to DB 2s after last edit (only if enabled)
+      if (autoSaveEnabled) {
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(() => {
+          autoSave(updated);
+        }, 2000);
+      }
+
+      return updated;
+    });
   };
 
   const totalSize = Object.values(files).reduce((sum, c) => sum + c.length, 0);
@@ -805,29 +1073,76 @@ export default function SiteEditor({
           <div className="flex-1 overflow-y-auto min-h-0 max-h-[30vh] lg:max-h-none">
             {hasFiles ? (
               <div className="p-2 space-y-0.5">
-                {fileNames.map((name) => (
+                {/* Refresh file list */}
+                <div className="flex items-center justify-end px-1 pb-1">
                   <button
-                    key={name}
-                    onClick={() => {
-                      setActiveTab(name);
-                      setOpenTabs((prev) => new Set(prev).add(name));
-                    }}
-                    className={`w-full flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition ${
-                      activeTab === name && openTabs.has(name)
-                        ? "bg-accent/10 text-foreground border border-accent/20"
-                        : "text-muted hover:text-foreground hover:bg-card-bg"
-                    }`}
+                    onClick={handleRefresh}
+                    className="p-1 rounded text-muted hover:text-foreground hover:bg-card-bg transition"
+                    title="Refresh files"
                   >
-                    <span className={`text-xs font-bold ${getFileColor(name)}`}>
-                      {getFileIcon(name)}
-                    </span>
-                    <span className="truncate">{name}</span>
-                    <span className="ml-auto text-xs text-muted">
-                      {files[name].length < 1024
-                        ? `${files[name].length} B`
-                        : `${(files[name].length / 1024).toFixed(1)} KB`}
-                    </span>
+                    <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.992 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.016 4.356v4.992" />
+                    </svg>
                   </button>
+                </div>
+                {fileNames.map((name) => (
+                  <div key={name} className="group flex items-center gap-1">
+                    {renamingFile === name ? (
+                      <div className="flex-1 flex items-center gap-1 px-2 py-1">
+                        <span className={`text-xs font-bold ${getFileColor(name)}`}>
+                          {getFileIcon(name)}
+                        </span>
+                        <input
+                          autoFocus
+                          defaultValue={name}
+                          className="flex-1 text-sm bg-card-bg border border-accent rounded px-1.5 py-0.5 text-foreground focus:outline-none"
+                          onBlur={(e) => renameFile(name, e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") renameFile(name, (e.target as HTMLInputElement).value);
+                            if (e.key === "Escape") setRenamingFile(null);
+                          }}
+                        />
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setActiveTab(name);
+                          setOpenTabs((prev) => new Set(prev).add(name));
+                        }}
+                        onDoubleClick={(e) => {
+                          e.preventDefault();
+                          setRenamingFile(name);
+                        }}
+                        className={`flex-1 flex items-center gap-2 px-3 py-2 text-sm rounded-lg transition ${
+                          activeTab === name && openTabs.has(name)
+                            ? "bg-accent/10 text-foreground border border-accent/20"
+                            : "text-muted hover:text-foreground hover:bg-card-bg"
+                        }`}
+                        title="Click to open, double-click to rename"
+                      >
+                        <span className={`text-xs font-bold ${getFileColor(name)}`}>
+                          {getFileIcon(name)}
+                        </span>
+                        <span className="truncate">{name}</span>
+                        <span className="ml-auto text-xs text-muted">
+                          {files[name].length < 1024
+                            ? `${files[name].length} B`
+                            : `${(files[name].length / 1024).toFixed(1)} KB`}
+                        </span>
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        if (confirm(`Delete ${name}?`)) deleteFile(name);
+                      }}
+                      className="shrink-0 p-1 rounded text-muted/30 hover:text-danger transition opacity-0 group-hover:opacity-100"
+                      title="Delete file"
+                    >
+                      <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                      </svg>
+                    </button>
+                  </div>
                 ))}
                 {pendingFileCount > 0 && (
                   <div className="flex items-center gap-2 px-3 py-2 text-xs text-muted animate-pulse">
@@ -910,6 +1225,82 @@ export default function SiteEditor({
                       <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Command Approval */}
+        {pendingCommands.some((c) => c.status === "pending" || c.status === "running") && (
+          <div className="border-t border-card-border bg-yellow-500/5">
+            <div className="px-3 py-1.5 flex items-center justify-between">
+              <span className="text-xs font-semibold text-yellow-400 uppercase tracking-wider flex items-center gap-1.5">
+                <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+                Commands to run
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={handleRunAllCommands}
+                  disabled={pendingCommands.some((c) => c.status === "running")}
+                  className="text-xs px-2 py-0.5 rounded bg-success/20 text-success hover:bg-success/30 transition disabled:opacity-50"
+                >
+                  Run All
+                </button>
+                <button
+                  onClick={() => setPendingCommands((prev) => prev.map((c) => c.status === "pending" ? { ...c, status: "skipped" as const } : c))}
+                  className="text-xs px-2 py-0.5 rounded bg-muted/20 text-muted hover:bg-muted/30 transition"
+                >
+                  Skip All
+                </button>
+              </div>
+            </div>
+            <div className="px-2 pb-2 space-y-1">
+              {pendingCommands.filter((c) => c.status !== "skipped" && c.status !== "done").map((cmd) => (
+                <div key={cmd.id} className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-background/50">
+                  <code className="flex-1 text-xs font-mono text-foreground truncate">$ {cmd.command}</code>
+                  {cmd.status === "pending" ? (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => handleRunCommand(cmd.id)}
+                        className="text-xs px-2 py-0.5 rounded bg-success/20 text-success hover:bg-success/30 transition"
+                      >
+                        Run
+                      </button>
+                      <button
+                        onClick={() => handleSkipCommand(cmd.id)}
+                        className="text-xs px-2 py-0.5 rounded bg-muted/20 text-muted hover:bg-muted/30 transition"
+                      >
+                        Skip
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-yellow-400 animate-pulse shrink-0">Running...</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Command Results */}
+        {pendingCommands.some((c) => c.status === "done") && (
+          <div className="border-t border-card-border">
+            <div className="px-3 py-1.5 flex items-center justify-between">
+              <span className="text-xs font-semibold text-muted uppercase tracking-wider">Results</span>
+              <button onClick={handleDismissCommands} className="text-xs text-muted hover:text-foreground transition">
+                Dismiss
+              </button>
+            </div>
+            <div className="px-2 pb-2 space-y-1 max-h-32 overflow-y-auto">
+              {pendingCommands.filter((c) => c.status === "done").map((cmd) => (
+                <div key={cmd.id} className="px-2 py-1 rounded-md bg-background/50">
+                  <code className="text-xs font-mono text-muted">$ {cmd.command}</code>
+                  {cmd.output && (
+                    <pre className="text-xs text-foreground/70 mt-0.5 whitespace-pre-wrap break-words max-h-20 overflow-y-auto">{cmd.output.slice(0, 500)}</pre>
+                  )}
                 </div>
               ))}
             </div>
@@ -1072,6 +1463,92 @@ export default function SiteEditor({
               </a>
             )}
 
+            {/* Refresh: sync files from container + reload preview */}
+            <button
+              onClick={handleRefresh}
+              disabled={!hasFiles}
+              className="rounded-md border border-card-border p-1.5 text-muted hover:text-foreground hover:border-accent transition disabled:opacity-50"
+              title="Refresh files & preview"
+            >
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.992 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.016 4.356v4.992" />
+              </svg>
+            </button>
+
+            {/* Rebuild & save */}
+            {files["package.json"] && containerStatus.status === "ready" && (
+              <button
+                onClick={() => runBuildAndSave()}
+                disabled={buildStatus === "building" || buildStatus === "saving"}
+                className={`rounded-md border p-1.5 transition ${
+                  buildStatus === "building" || buildStatus === "saving"
+                    ? "border-yellow-500/30 text-yellow-400 animate-pulse"
+                    : buildStatus === "success"
+                      ? "border-success/30 text-success"
+                      : buildStatus === "failed"
+                        ? "border-danger/30 text-danger"
+                        : "border-card-border text-muted hover:text-foreground hover:border-accent"
+                }`}
+                title={
+                  buildStatus === "building" ? "Building..."
+                    : buildStatus === "saving" ? "Saving..."
+                    : buildStatus === "failed" ? "Build failed — click to retry"
+                    : "Rebuild & save"
+                }
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M11.42 15.17l-5.384-3.107A1.5 1.5 0 005 13.39v4.223c0 .536.29 1.03.756 1.292l5.384 3.107a1.5 1.5 0 001.52 0l5.384-3.107A1.5 1.5 0 0019 17.613V13.39a1.5 1.5 0 00-.756-1.292L12.86 9.09M11.42 15.17l5.384-3.107M11.42 15.17V20.7m5.44-8.717L12 9.09m4.86 3.893V8.76a1.5 1.5 0 00-.756-1.292l-5.384-3.107a1.5 1.5 0 00-1.52 0L3.816 7.468A1.5 1.5 0 003.06 8.76v4.222" />
+                </svg>
+              </button>
+            )}
+
+            {/* Save without build (for non-framework projects) */}
+            {hasFiles && !files["package.json"] && (
+              <button
+                onClick={() => autoSave(files)}
+                disabled={buildStatus === "saving"}
+                className={`rounded-md border p-1.5 transition ${
+                  buildStatus === "saving"
+                    ? "border-yellow-500/30 text-yellow-400 animate-pulse"
+                    : buildStatus === "success"
+                      ? "border-success/30 text-success"
+                      : "border-card-border text-muted hover:text-foreground hover:border-accent"
+                }`}
+                title={buildStatus === "saving" ? "Saving..." : buildStatus === "success" ? "Saved!" : "Save now"}
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                </svg>
+              </button>
+            )}
+
+            {/* Terminal toggle */}
+            {files["package.json"] && (
+              <button
+                onClick={() => {
+                  if (!terminalOpen) {
+                    // Wire up the container getter for the terminal
+                    import("./WebContainerPreview").then(({ getContainer }) => {
+                      import("./Terminal").then(({ setContainerGetter }) => {
+                        setContainerGetter(getContainer);
+                      });
+                    });
+                  }
+                  setTerminalOpen((prev) => !prev);
+                }}
+                className={`rounded-md border p-1.5 transition ${
+                  terminalOpen
+                    ? "border-accent text-accent bg-accent/10"
+                    : "border-card-border text-muted hover:text-foreground hover:border-accent"
+                }`}
+                title="Toggle terminal"
+              >
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3M5.25 20.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z" />
+                </svg>
+              </button>
+            )}
+
             <button
               onClick={async () => {
                 const { exportSiteAsZip } = await import("@/lib/export-site");
@@ -1121,6 +1598,7 @@ export default function SiteEditor({
                 <WebContainerPreview
                   files={files}
                   onStatusChange={handleContainerStatus}
+                  onLog={(line) => setServerLogs((prev) => [...prev, line])}
                 />
               </Suspense>
             ) : previewHtml ? (
@@ -1137,18 +1615,26 @@ export default function SiteEditor({
               </div>
             )
           ) : files[activeTab] !== undefined ? (
-            <textarea
-              value={files[activeTab]}
-              onChange={(e) => updateFile(activeTab, e.target.value)}
-              className="w-full h-full code-editor bg-card-bg p-4 text-foreground focus:outline-none"
-              spellCheck={false}
-            />
+            <Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin h-6 w-6 border-2 border-accent border-t-transparent rounded-full" /></div>}>
+              <CodeEditorComponent
+                filename={activeTab}
+                value={files[activeTab]}
+                onChange={(val) => updateFile(activeTab, val)}
+              />
+            </Suspense>
           ) : (
             <div className="flex items-center justify-center h-full text-muted">
               <p>Select a file</p>
             </div>
           )}
         </div>
+
+        {/* Terminal panel */}
+        {terminalOpen && (
+          <Suspense fallback={null}>
+            <TerminalComponent visible={terminalOpen} onClose={() => setTerminalOpen(false)} serverLogs={serverLogs} />
+          </Suspense>
+        )}
       </div>
     </div>
 
@@ -1208,6 +1694,20 @@ export default function SiteEditor({
         {publishedUrl && (
           <span className="text-green-400">Published</span>
         )}
+        <button
+          onClick={() => setAutoSaveEnabled((prev) => !prev)}
+          className={`flex items-center gap-1 px-1.5 py-0.5 rounded transition ${
+            autoSaveEnabled
+              ? "text-success hover:text-success/80"
+              : "text-muted/50 hover:text-muted"
+          }`}
+          title={autoSaveEnabled ? "Auto-save edits ON — click to disable" : "Auto-save edits OFF — manual edits won't save automatically"}
+        >
+          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+          </svg>
+          {autoSaveEnabled ? "Auto" : "Manual"}
+        </button>
         <span>{resolvedModelName}</span>
       </div>
     </div>

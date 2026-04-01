@@ -7,7 +7,7 @@ const nextConfig: NextConfig = {
         // Required for WebContainers (SharedArrayBuffer) — editor pages only
         source: "/:locale/editor/:path*",
         headers: [
-          { key: "Cross-Origin-Embedder-Policy", value: "require-corp" },
+          { key: "Cross-Origin-Embedder-Policy", value: "credentialless" },
           { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
         ],
       },

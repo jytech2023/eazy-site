@@ -186,13 +186,19 @@ async function processTree(
   const repoName = repo.split("/").pop() || "Imported Site";
   const title = titleMatch ? titleMatch[1] : repoName;
 
-  // Save to DB
+  // Upload to R2 if configured
+  const { isR2Configured, uploadSiteToR2 } = await import("@/lib/r2");
+  if (isR2Configured()) {
+    await uploadSiteToR2(slug, files);
+  }
+
+  // Save metadata to DB
   const [site] = await db
     .insert(sites)
     .values({
       title,
       slug,
-      htmlContent: JSON.stringify(files),
+      htmlContent: isR2Configured() ? "{}" : JSON.stringify(files),
       published: false,
       isAnonymous: false,
       userId: user.id,

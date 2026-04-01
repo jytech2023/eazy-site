@@ -1,14 +1,33 @@
-import { streamText } from "ai";
+import { streamText, tool } from "ai";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import { PLANS, type PlanKey } from "@/lib/stripe";
 import { getAvailableModels, AUTO_MODEL_ID } from "@/lib/models";
+import { z } from "zod";
+
+import { createOpenAI } from "@ai-sdk/openai";
 
 const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
 });
 
+// ZhipuAI (GLM) — direct provider, free GLM-4.7-Flash
+const zhipuai = process.env.ZAI_API_KEY
+  ? createOpenAI({
+      baseURL: "https://open.bigmodel.cn/api/paas/v4",
+      apiKey: process.env.ZAI_API_KEY,
+    })
+  : null;
+
+// Cerebras — direct provider, fast inference
+const cerebras = process.env.CEREBRAS_API_KEY
+  ? createOpenAI({
+      baseURL: "https://api.cerebras.ai/v1",
+      apiKey: process.env.CEREBRAS_API_KEY,
+    })
+  : null;
+
 // --- Retry logic inspired by Claude-Code's withRetry pattern ---
-const MAX_RETRIES = 2;
+const MAX_RETRIES = 10; // High enough to traverse the full fallback chain
 const BASE_DELAY_MS = 500;
 
 // Fallback chain: if requested model fails, try a cheaper/more-available model
@@ -18,13 +37,63 @@ const MODEL_FALLBACKS: Record<string, string> = {
   "anthropic/claude-sonnet-4": "google/gemini-2.5-pro-preview",
   "google/gemini-2.5-pro-preview": "qwen/qwen3-coder:free",
   "openai/gpt-4o": "qwen/qwen3-coder:free",
+  // Free tier fallback chain — deep chain to maximize availability
   "qwen/qwen3-coder:free": "qwen/qwen3.6-plus-preview:free",
   "qwen/qwen3.6-plus-preview:free": "google/gemma-3-27b-it:free",
   "google/gemma-3-27b-it:free": "meta-llama/llama-3.3-70b-instruct:free",
+  "meta-llama/llama-3.3-70b-instruct:free": "nvidia/nemotron-3-super-120b-a12b:free",
+  "nvidia/nemotron-3-super-120b-a12b:free": "nousresearch/hermes-3-llama-3.1-405b:free",
+  "nousresearch/hermes-3-llama-3.1-405b:free": "stepfun/step-3.5-flash:free",
+  "stepfun/step-3.5-flash:free": "qwen/qwen3-next-80b-a3b-instruct:free",
+  "qwen/qwen3-next-80b-a3b-instruct:free": "openrouter/free",
+  // Direct provider fallbacks (bypass OpenRouter entirely)
+  "openrouter/free": "cerebras/qwen-3-235b",
+  "cerebras/qwen-3-235b": "cerebras/llama3.1-8b",
+  "cerebras/llama3.1-8b": "zhipuai/glm-4.7-flash",
 };
+
+// Models that use direct providers instead of OpenRouter
+const DIRECT_PROVIDERS: Record<string, string> = {
+  "zhipuai/glm-4.7-flash": "zhipuai",
+  "cerebras/qwen-3-235b": "cerebras",
+  "cerebras/llama3.1-8b": "cerebras",
+};
+
+// Cooldown tracking: models that recently hit rate limits are skipped
+// Map<modelId, cooldownExpiresAt (timestamp)>
+const modelCooldowns = new Map<string, number>();
+const COOLDOWN_MS = 60_000; // 1 minute cooldown after rate limit
+
+function isModelOnCooldown(modelId: string): boolean {
+  const expiresAt = modelCooldowns.get(modelId);
+  if (!expiresAt) return false;
+  if (Date.now() > expiresAt) {
+    modelCooldowns.delete(modelId);
+    return false;
+  }
+  return true;
+}
+
+function putModelOnCooldown(modelId: string) {
+  modelCooldowns.set(modelId, Date.now() + COOLDOWN_MS);
+  console.log(`[cooldown] ${modelId.split("/").pop()} on cooldown for ${COOLDOWN_MS / 1000}s`);
+}
 
 function getFallbackModel(modelId: string): string | null {
   return MODEL_FALLBACKS[modelId] || null;
+}
+
+// Walk the fallback chain, skipping models on cooldown
+function getNextAvailableModel(startModel: string, triedModels: string[]): string | null {
+  let model = getFallbackModel(startModel);
+  while (model) {
+    if (!triedModels.includes(model) && !isModelOnCooldown(model)) {
+      return model;
+    }
+    triedModels.push(model); // Mark as tried to avoid loops
+    model = getFallbackModel(model);
+  }
+  return null;
 }
 
 async function sleep(ms: number): Promise<void> {
@@ -68,6 +137,21 @@ Use labeled code blocks for each file:
 - JavaScript goes in script.js linked via \`<script src="script.js"></script>\` — NEVER inline scripts in HTML.
 - You may add more files when appropriate (about.html, contact.html, etc.)
 - Each file MUST use the exact format: \`\`\`lang filename=filename.ext
+- When generating React/Vue/Vite projects, always include a package.json with all required dependencies.
+
+## Shell Commands
+You can run commands in the project's WebContainer by using a special code block format:
+
+\`\`\`bash command
+npm install react-router-dom
+\`\`\`
+
+Commands will be shown to the user for approval before execution. Use this for:
+- Installing npm packages: \`npm install package-name\`
+- Running build or test commands: \`npm run build\`
+- Checking file structure: \`ls src/\`
+
+Do NOT use command blocks for destructive operations (rm -rf, etc.). One command per block.
 
 ## Design Excellence
 - **Mobile-first responsive**: Use min-width media queries; test mental model at 320px, 768px, 1024px, 1440px
@@ -81,7 +165,7 @@ Use labeled code blocks for each file:
 ## HTML Quality
 - Include proper \`<meta>\` tags: viewport, description, charset, Open Graph basics
 - Use semantic HTML5 elements: header, nav, main, section, article, footer
-- Add meaningful \`alt\` text for images; use placeholder services for demo images (e.g., picsum.photos or placehold.co)
+- Add meaningful \`alt\` text for images; use inline SVG placeholders or CSS gradient backgrounds for demo images instead of external services (placehold.co, picsum.photos, etc. are blocked by COEP in the preview)
 - Ensure proper heading hierarchy (h1 → h2 → h3, no skipping)
 - Add \`lang\` attribute to \`<html>\` tag
 
@@ -156,6 +240,9 @@ Follow this structured approach:
    - CSS covers mobile (320px) through desktop (1440px)
    - Interactive elements have hover/focus states
    - No placeholder text like "Lorem ipsum" unless explicitly asked
+   - For React/Vite projects: ALL CSS must be imported in main.jsx or App.jsx (not just linked in HTML)
+   - All config/setup files (i18n, router, store) must be imported in main.jsx or App.jsx — creating a file is not enough, it must be imported
+   - When adding i18n: import the i18n config in main.jsx BEFORE App render, use useTranslation() hook in components, replace ALL hardcoded text with t('key')
    If you spot an issue, fix it in the code before outputting — don't mention the fix.
 
 ## Response Style
@@ -166,16 +253,23 @@ Follow this structured approach:
 
   return `
 ## Editing Mode — Important Rules
-You are modifying an existing site. You receive:
-- **Full contents** of the most relevant files (active file, files mentioned in the prompt, core files)
-- **Summaries** of other files (filename + size + first line) — if you need to see a file's full content to make changes, tell the user to open that file and ask again, or make your best judgment based on the summary.
+You are modifying an existing site. You receive some file contents in context, plus you have **tools** to read any file:
 
-- **Only output files that changed**. Do NOT re-output unchanged files — this wastes tokens and bandwidth.
+### Available Tools
+- **read_file**: Read the full content of any file. Use this BEFORE modifying a file you haven't seen yet. Call it with the file path (e.g., "src/components/Hero.jsx").
+- **list_files**: List all files in the project with sizes.
+
+### Workflow
+1. If you need to see a file's content, call \`read_file\` — do NOT ask the user to share it.
+2. Read ALL files you plan to modify BEFORE writing any code.
+3. Only output files that changed — do NOT re-output unchanged files.
+
+### Rules
 - If a file is unchanged, simply omit it from your response.
 - If you need to add a NEW file, output it with its filename.
-- If you need to DELETE a file, say so explicitly in your explanation (e.g., "I removed old-page.html").
+- If you need to DELETE a file, say so explicitly (e.g., "I removed old-page.html").
 - Preserve the user's existing design decisions (colors, fonts, layout) unless they explicitly ask to change them.
-- When modifying a file you only see in summary, output the COMPLETE new version of that file.
+- When modifying a file, output the COMPLETE new version of that file.
 
 ## Response Workflow
 1. **Synthesize**: Understand exactly what the user wants changed. Identify which files need modification.
@@ -184,6 +278,9 @@ You are modifying an existing site. You receive:
    - Do modified CSS selectors still match HTML elements?
    - Do added scripts reference correct DOM IDs/classes?
    - Is the responsive layout still intact?
+   - Are ALL new files properly imported? Creating a file without importing it does nothing.
+   - For CSS changes: is the CSS file imported in the JS entry point (main.jsx)? Root-level CSS won't auto-load in Vite.
+   - For i18n: is the i18n config imported in main.jsx? Are ALL text strings replaced with t() calls?
    Fix any issues in the code before outputting.
 
 ## Response Style
@@ -197,6 +294,13 @@ const MAX_FILE_CONTEXT_CHARS = 15000;
 
 // Maximum total context characters for all files combined
 const MAX_TOTAL_FILE_CONTEXT = 50000;
+const MAX_TOTAL_FILE_CONTEXT_BROAD = 120000; // Higher limit for broad operations (i18n, refactor all, etc.)
+
+// Files to skip sending to AI (build artifacts, config that AI doesn't need to read)
+const SKIP_FILES = new Set(["package.json", "vite.config.js", "vite.config.ts", "tsconfig.json", "package-lock.json"]);
+function shouldSkipFile(name: string): boolean {
+  return name.startsWith("dist/") || name.startsWith("node_modules/") || SKIP_FILES.has(name);
+}
 
 export async function POST(request: Request) {
   const body = await request.json();
@@ -301,10 +405,13 @@ export async function POST(request: Request) {
     // 1. The file the user is currently viewing
     // 2. Files mentioned in the prompt
     // 3. For small projects (≤5 files), send everything
+    // 4. For broad operations (i18n, translate, refactor all, etc.), send everything
     const isSmallProject = fileNames.length <= 5;
+    const broadPatterns = /\b(i18n|translate|translation|locali[sz]|internationali[sz]|refactor all|all files|all components|every file|every component|add .* to all|change .* everywhere|全部|所有|翻译|国际化|모든|번역)\b/i;
+    const needsAllFiles = isSmallProject || broadPatterns.test(prompt);
     const relevantFiles = new Set<string>();
 
-    if (isSmallProject) {
+    if (needsAllFiles) {
       fileNames.forEach((f) => relevantFiles.add(f));
     } else {
       // Always include the active file
@@ -342,12 +449,16 @@ export async function POST(request: Request) {
     const fullFileEntries: string[] = [];
     const summaryEntries: string[] = [];
     let totalChars = 0;
+    const contextLimit = needsAllFiles ? MAX_TOTAL_FILE_CONTEXT_BROAD : MAX_TOTAL_FILE_CONTEXT;
 
     for (const name of fileNames) {
+      // Skip build artifacts and config files
+      if (shouldSkipFile(name)) continue;
+
       const content = allFiles[name];
       const ext = name.split(".").pop();
 
-      if (relevantFiles.has(name) && totalChars + content.length <= MAX_TOTAL_FILE_CONTEXT) {
+      if (relevantFiles.has(name) && totalChars + content.length <= contextLimit) {
         if (content.length > MAX_FILE_CONTEXT_CHARS) {
           const truncated = content.slice(0, MAX_FILE_CONTEXT_CHARS);
           fullFileEntries.push(
@@ -405,7 +516,15 @@ export async function POST(request: Request) {
   messages.push({ role: "user", content: userContent });
 
   // Try with fallback chain on rate limit
+  // If the selected model is on cooldown, jump to the next available one
   let currentModel = modelId;
+  if (isModelOnCooldown(currentModel)) {
+    const next = getNextAvailableModel(currentModel, [currentModel]);
+    if (next) {
+      console.log(`[cooldown] ${currentModel.split("/").pop()} on cooldown, jumping to ${next.split("/").pop()}`);
+      currentModel = next;
+    }
+  }
   const triedModels: string[] = [];
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -445,38 +564,142 @@ export async function POST(request: Request) {
         );
       }
 
-      // Model is available — now stream the real request
-      const result = streamText({
-        model: openrouter(currentModel),
-        messages,
-        temperature: 0.7,
-        maxOutputTokens: 16384,
+      // Build tools that give the AI access to the project files
+      const allFiles = (files as Record<string, string>) || {};
+
+      const readFileTool = tool({
+        description: "Read the full content of a file in the project. Use this when you need to see a file's content before making changes.",
+        inputSchema: z.object({
+          filename: z.string().describe("The file path to read, e.g. 'src/components/Hero.jsx' or 'style.css'"),
+        }),
+        execute: async ({ filename }: { filename: string }) => {
+          const content = allFiles[filename];
+          if (!content) {
+            const available = Object.keys(allFiles).join(", ");
+            return `File "${filename}" not found. Available files: ${available}`;
+          }
+          return content;
+        },
       });
 
-      const response = result.toTextStreamResponse();
-      response.headers.set("X-Model-Used", currentModel);
+      const listFilesTool = tool({
+        description: "List all files in the project with their sizes.",
+        inputSchema: z.object({}),
+        execute: async () => {
+          return Object.entries(allFiles)
+            .map(([name, content]) => `${name} (${content.length} chars)`)
+            .join("\n");
+        },
+      });
+
+      // Select provider based on model
+      const directProvider = DIRECT_PROVIDERS[currentModel];
+      const modelInstance = (() => {
+        if (directProvider === "zhipuai" && zhipuai) return zhipuai(currentModel.replace("zhipuai/", ""));
+        if (directProvider === "cerebras" && cerebras) return cerebras(currentModel.replace("cerebras/", ""));
+        return openrouter(currentModel);
+      })();
+
+      // Model is available — now stream the real request
+      const result = streamText({
+        model: modelInstance,
+        messages,
+        ...(isEditing ? {
+          tools: { read_file: readFileTool, list_files: listFilesTool },
+          maxSteps: 5,
+        } : {}),
+        temperature: 0.7,
+        maxOutputTokens: 16384,
+        maxRetries: 0, // Disable SDK retry — we handle fallback ourselves
+      });
+
+      // Create a custom readable stream that catches errors and returns them as text
+      const modelName = currentModel.split("/").pop()?.replace(/:free$/, "");
+      const textStream = result.textStream;
+      const encoder = new TextEncoder();
+
+      const readable = new ReadableStream({
+        async start(controller) {
+          try {
+            for await (const chunk of textStream) {
+              controller.enqueue(encoder.encode(chunk));
+            }
+            controller.close();
+          } catch (streamError: unknown) {
+            // Stream error (rate limit, network, etc.) — send as text to user
+            const errStatus = (streamError as { statusCode?: number })?.statusCode
+              || (streamError as { status?: number })?.status;
+            let errMsg = streamError instanceof Error ? streamError.message : "Generation failed";
+
+            // Try to extract provider error message
+            const responseBody = (streamError as { responseBody?: string })?.responseBody;
+            if (responseBody) {
+              try {
+                const body = JSON.parse(responseBody);
+                errMsg = body?.error?.metadata?.raw || body?.error?.message || errMsg;
+              } catch {}
+            }
+
+            const isRateLimit = errStatus === 429 || errStatus === 503 || errStatus === 529;
+            if (isRateLimit) putModelOnCooldown(currentModel);
+
+            const userMessage = isRateLimit
+              ? `\n\n⚠️ **Rate limited** — \`${modelName}\` is temporarily unavailable. Please wait a moment and try again, or select a different model.`
+              : `\n\n⚠️ **Error** — \`${modelName}\`: ${errMsg.slice(0, 200)}`;
+
+            controller.enqueue(encoder.encode(userMessage));
+            controller.close();
+          }
+        },
+      });
+
+      const response = new Response(readable, {
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+          "X-Model-Used": currentModel,
+        },
+      });
       return response;
     } catch (error: unknown) {
-      const status = (error as { status?: number })?.status;
+      // Extract status code from various error shapes (AI SDK wraps errors)
+      const status = (error as { statusCode?: number })?.statusCode
+        || (error as { status?: number })?.status
+        || ((error as { lastError?: { statusCode?: number } })?.lastError?.statusCode);
 
-      if (status === 429 || status === 529) {
-        const fallback = getFallbackModel(currentModel);
-        if (fallback && !triedModels.includes(fallback)) {
-          currentModel = fallback;
-          continue;
-        }
+      // Extract human-readable error message
+      let errorDetail = "";
+      if ((error as { lastError?: { responseBody?: string } })?.lastError?.responseBody) {
+        try {
+          const body = JSON.parse((error as { lastError: { responseBody: string } }).lastError.responseBody);
+          errorDetail = body?.error?.metadata?.raw || body?.error?.message || "";
+        } catch {}
+      }
+      if (!errorDetail && error instanceof Error) {
+        errorDetail = error.message;
       }
 
-      // Try fallback on any error
-      const fallback = getFallbackModel(currentModel);
-      if (fallback && !triedModels.includes(fallback) && attempt < MAX_RETRIES) {
+      const modelName = currentModel.split("/").pop()?.replace(/:free$/, "");
+      const isRateLimitErr = status === 429 || status === 503 || status === 529;
+      console.log(`[chat] Model ${modelName} failed (${status}): ${errorDetail.slice(0, 100)}`);
+
+      // Put rate-limited models on cooldown so they're skipped on next request
+      if (isRateLimitErr) {
+        putModelOnCooldown(currentModel);
+      }
+
+      // Try next available fallback model (skips models on cooldown)
+      const fallback = getNextAvailableModel(currentModel, triedModels);
+      if (fallback) {
         currentModel = fallback;
         continue;
       }
 
-      const errorMessage = error instanceof Error ? error.message : "Generation failed";
+      // No fallback available — return error to user
+      const isRateLimit = status === 429 || status === 503 || status === 529;
       return new Response(
-        `⚠️ **Error** — Failed to generate with \`${currentModel.split("/").pop()}\`: ${errorMessage}. Please try a different model.`,
+        isRateLimit
+          ? `⚠️ **Rate limited** — \`${modelName}\` is temporarily unavailable. ${triedModels.length > 1 ? `Tried ${triedModels.length} models. ` : ""}Please wait a moment and try again, or select a different model.`
+          : `⚠️ **Error** — \`${modelName}\`: ${errorDetail.slice(0, 200)}`,
         {
           status: 200,
           headers: { "Content-Type": "text/plain; charset=utf-8" },

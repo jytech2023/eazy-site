@@ -11,8 +11,14 @@ type GallerySite = {
   isAnonymous: boolean;
   username: string;
   userAvatar: string | null;
+  views: number;
   createdAt: string;
   url: string;
+};
+
+type GalleryStats = {
+  totalSites: number;
+  totalViews: number;
 };
 
 const t = {
@@ -30,6 +36,9 @@ const t = {
     empty: "No sites yet. Be the first to create one!",
     createCta: "Create Your Site",
     close: "Close",
+    sitesBuilt: "Sites Built",
+    totalViews: "Total Views",
+    views: "views",
   },
   zh: {
     title: "作品展示",
@@ -45,6 +54,9 @@ const t = {
     empty: "还没有网站。成为第一个创建的人！",
     createCta: "创建你的网站",
     close: "关闭",
+    sitesBuilt: "已创建网站",
+    totalViews: "总浏览量",
+    views: "次浏览",
   },
   es: {
     title: "Galería",
@@ -60,6 +72,9 @@ const t = {
     empty: "Aún no hay sitios. ¡Sé el primero en crear uno!",
     createCta: "Crea Tu Sitio",
     close: "Cerrar",
+    sitesBuilt: "Sitios Creados",
+    totalViews: "Vistas Totales",
+    views: "vistas",
   },
   ko: {
     title: "갤러리",
@@ -75,6 +90,9 @@ const t = {
     empty: "아직 사이트가 없습니다. 첫 번째로 만들어 보세요!",
     createCta: "사이트 만들기",
     close: "닫기",
+    sitesBuilt: "제작된 사이트",
+    totalViews: "총 조회수",
+    views: "조회",
   },
 };
 
@@ -98,6 +116,7 @@ export default function GalleryClient({ locale }: { locale: Locale }) {
   const [codeModal, setCodeModal] = useState<{ title: string; files: Record<string, string>; siteId: number } | null>(null);
   const [codeTab, setCodeTab] = useState("index.html");
   const [forking, setForking] = useState<number | null>(null);
+  const [stats, setStats] = useState<GalleryStats>({ totalSites: 0, totalViews: 0 });
   const d = t[locale];
 
   const fetchSites = async (p: number) => {
@@ -114,6 +133,7 @@ export default function GalleryClient({ locale }: { locale: Locale }) {
         if (data) {
           setSites(data.sites);
           setHasMore(data.hasMore);
+          if (data.stats) setStats(data.stats);
         }
       })
       .finally(() => setLoading(false));
@@ -172,6 +192,21 @@ export default function GalleryClient({ locale }: { locale: Locale }) {
       <div className="text-center mb-12">
         <h1 className="text-3xl sm:text-4xl font-bold">{d.title}</h1>
         <p className="mt-3 text-lg text-muted">{d.subtitle}</p>
+        {/* Stats counters */}
+        {(stats.totalSites > 0 || stats.totalViews > 0) && (
+          <div className="flex items-center justify-center gap-8 mt-6">
+            <div className="text-center">
+              <p className="text-2xl sm:text-3xl font-bold text-foreground">{stats.totalSites.toLocaleString()}</p>
+              <p className="text-xs text-muted uppercase tracking-wider">{d.sitesBuilt}</p>
+            </div>
+            <div className="w-px h-10 bg-card-border" />
+            <div className="text-center">
+              <p className="text-2xl sm:text-3xl font-bold text-foreground">{stats.totalViews.toLocaleString()}</p>
+              <p className="text-xs text-muted uppercase tracking-wider">{d.totalViews}</p>
+            </div>
+          </div>
+        )}
+
         <Link
           href={`/${locale}/editor`}
           className="inline-flex items-center gap-2 mt-6 rounded-lg bg-accent px-6 py-2.5 text-sm font-medium text-white hover:bg-accent-dark transition shadow-lg shadow-accent/20"
@@ -265,6 +300,18 @@ export default function GalleryClient({ locale }: { locale: Locale }) {
                         </span>
                         <span className="text-xs text-muted/50">·</span>
                         <span className="text-xs text-muted/50">{timeAgo(site.createdAt)}</span>
+                        {site.views > 0 && (
+                          <>
+                            <span className="text-xs text-muted/50">·</span>
+                            <span className="text-xs text-muted/50 flex items-center gap-0.5">
+                              <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              </svg>
+                              {site.views.toLocaleString()}
+                            </span>
+                          </>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition">
